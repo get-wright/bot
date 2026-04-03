@@ -12,14 +12,12 @@ export function AgentPanel({ events, isActive }: { events: AgentEvent[]; isActiv
     );
   }
   return (
-    <Box flexDirection="column" padding={1}>
+    <Box flexDirection="column" padding={1} overflow="hidden">
       {events.map((event, i) => (
         <EventLine key={i} event={event} />
       ))}
       {isActive && events.length > 0 && (
-        <Box>
-          <Text color="yellow">  Investigating...</Text>
-        </Box>
+        <Text color="yellow">  Investigating...</Text>
       )}
     </Box>
   );
@@ -28,31 +26,15 @@ export function AgentPanel({ events, isActive }: { events: AgentEvent[]; isActiv
 function EventLine({ event }: { event: AgentEvent }) {
   switch (event.type) {
     case "tool_start":
-      return (
-        <Box>
-          <Text color="cyan">  * {formatToolStart(event.tool, event.args)}</Text>
-        </Box>
-      );
+      return <Text color="cyan">  * {formatToolStart(event.tool, event.args)}</Text>;
     case "tool_result":
-      return (
-        <Box marginLeft={4}>
-          <Text dimColor>{"-> "}{event.summary}</Text>
-        </Box>
-      );
+      return <Text dimColor>    {"-> "}{event.summary}</Text>;
     case "thinking":
-      return (
-        <Box>
-          <Text color="white">  {event.delta}</Text>
-        </Box>
-      );
+      return <Text>  {event.delta}</Text>;
     case "verdict":
       return <VerdictBanner verdict={event.verdict} />;
     case "error":
-      return (
-        <Box>
-          <Text color="red">  ! {event.message}</Text>
-        </Box>
-      );
+      return <Text color="red">  ! {event.message}</Text>;
   }
 }
 

@@ -138,7 +138,7 @@ function MainScreen({
 
   return (
     <Box flexDirection="row" width={termWidth} height={process.stdout.rows - 1}>
-      <Box width={tableWidth} flexDirection="column" borderStyle="single">
+      <Box width={tableWidth} flexDirection="column" borderStyle="single" overflow="hidden">
         {viewMode === "active" ? (
           <FindingsTable
             findings={findingStates.map((s) => s.entry)}
@@ -163,7 +163,7 @@ function MainScreen({
           </Box>
         )}
       </Box>
-      <Box width={panelWidth} flexDirection="column" borderStyle="single">
+      <Box width={panelWidth} flexDirection="column" borderStyle="single" overflow="hidden">
         {viewMode === "filtered" ? (
           <Text>Select a finding to investigate.</Text>
         ) : selected ? (
@@ -176,7 +176,7 @@ function MainScreen({
         )}
       </Box>
       {showSidebar && (
-        <Box width={sidebarWidth} flexDirection="column" borderStyle="single">
+        <Box width={sidebarWidth} flexDirection="column" borderStyle="single" overflow="hidden">
           <Sidebar
             total={totalCount}
             active={findings.length}
