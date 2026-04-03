@@ -138,14 +138,40 @@ class AuditOrchestrator:
             memory_hints = memory.get_hints(finding.check_id, fp)
 
         context = self._assembler.assemble(finding, file_contents, memory_hints)
-        assembly_detail = f"Vulnerability class: {context.vulnerability_class}"
+        assembly_parts = [f"Vulnerability class: {context.vulnerability_class}"]
+
+        cc = context.code_context
+        if cc.function_signature:
+            assembly_parts.append(f"Function: {cc.function_signature}")
+        if cc.function_body:
+            line_count = cc.function_body.count("\n") + 1
+            assembly_parts.append(f"Function body: {line_count} lines extracted")
+        if cc.imports:
+            assembly_parts.append(f"Imports: {len(cc.imports)} found")
+            for imp in cc.imports[:5]:
+                assembly_parts.append(f"  {imp.strip()[:80]}")
+            if len(cc.imports) > 5:
+                assembly_parts.append(f"  ... +{len(cc.imports) - 5} more")
+        if cc.decorators:
+            assembly_parts.append(f"Decorators: {', '.join(cc.decorators)}")
+        if cc.caller_signatures:
+            assembly_parts.append(f"Callers: {len(cc.caller_signatures)} found")
+            for caller in cc.caller_signatures[:3]:
+                assembly_parts.append(f"  {caller.strip()[:80]}")
         if context.framework_hints:
-            assembly_detail += f"\nFramework: {', '.join(context.framework_hints)}"
+            assembly_parts.append(f"Framework: {', '.join(context.framework_hints)}")
         if context.trace_context:
-            assembly_detail += (
-                f"\nTrace: source → sink with "
-                f"{len(context.trace_context.intermediate_steps)} intermediate vars"
-            )
+            tc = context.trace_context
+            if tc.source_code:
+                assembly_parts.append(f"Taint source: {tc.source_code.strip()[:80]}")
+            if tc.sink_code:
+                assembly_parts.append(f"Taint sink: {tc.sink_code.strip()[:80]}")
+            if tc.intermediate_steps:
+                assembly_parts.append(f"{len(tc.intermediate_steps)} intermediate vars traced")
+        if context.memory_hints:
+            assembly_parts.append(f"Memory: {len(context.memory_hints)} hints from prior triages")
+
+        assembly_detail = "\n".join(assembly_parts)
 
         yield AuditStepResult(
             step="context_assembly",
