@@ -173,6 +173,12 @@ class MainScreen(Screen):
         table.select_all()
         self._update_selected_sidebar()
 
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        """Enter key on DataTable — trigger audit if findings are selected."""
+        tabs = self.query_one(TabbedContent)
+        if tabs.active == "actionable":
+            self.action_audit_selected()
+
     def action_audit_selected(self) -> None:
         table = self.query_one("#findings-actionable", FindingsTable)
         selected = table.selected_findings
