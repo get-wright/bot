@@ -242,7 +242,7 @@ class AuditScreen(Screen):
 
     @work(exclusive=False, group="followup", thread=True)
     def _run_followup(self, question: str) -> None:
-        from sast_triage.llm.prompts import SYSTEM_PROMPT, build_user_prompt
+        from sast_triage.llm.prompts import FOLLOWUP_SYSTEM_PROMPT, build_user_prompt
 
         thinking_log = self.query_one("#thinking-log", ThinkingLog)
         self.app.call_from_thread(
@@ -254,14 +254,13 @@ class AuditScreen(Screen):
             f"\n\nPrevious verdict: {self._current_verdict.verdict} "
             f"({self._current_verdict.confidence:.0%})\n"
             f"Reasoning: {self._current_verdict.reasoning}\n\n"
-            f"User question: {question}\n\n"
-            "Answer the question about this finding."
+            f"User question: {question}"
         )
 
         role = "developer" if self._llm.provider == Provider.OPENAI_REASONING else "system"
         try:
             response = self._llm.chat([
-                {"role": role, "content": SYSTEM_PROMPT},
+                {"role": role, "content": FOLLOWUP_SYSTEM_PROMPT},
                 {"role": "user", "content": user_prompt},
             ])
             self.app.call_from_thread(

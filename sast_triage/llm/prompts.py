@@ -49,6 +49,15 @@ Your task: Given a SAST finding and its surrounding code context, determine whet
 Be precise. Cite specific line patterns. Do not speculate beyond the provided context."""
 
 
+FOLLOWUP_SYSTEM_PROMPT = """You are an expert application security engineer answering follow-up questions about a SAST finding that was already triaged.
+
+You have access to the original finding details, code context, and the previous verdict with reasoning.
+
+Answer the user's question directly and conversationally. Be specific about the code and finding in question. If the user asks about exploitability, mitigations, or fixes, give concrete, actionable answers referencing the actual code.
+
+Do NOT output JSON. Do NOT produce a new verdict unless explicitly asked. Just answer the question clearly."""
+
+
 VULN_CLASS_CONTEXT: dict[str, str] = {
     "xss": """XSS-Specific Guidance:
 - Auto-escaping (Django/Jinja2/React JSX) prevents reflected/stored XSS unless explicitly bypassed
