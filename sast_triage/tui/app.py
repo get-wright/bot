@@ -12,7 +12,7 @@ class SastTriageApp(App):
 
     TITLE = "sast-triage"
     CSS_PATH = "tui.tcss"
-    BINDINGS = [("ctrl+q", "quit", "Quit")]
+    BINDINGS = [("q", "quit", "Quit")]
 
     def __init__(self, workspace: Path | None = None) -> None:
         super().__init__()

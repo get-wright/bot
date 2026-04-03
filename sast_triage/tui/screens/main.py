@@ -29,7 +29,7 @@ class MainScreen(Screen):
         ("tab", "next_tab", "Next tab"),
         ("ctrl+p", "switch_provider", "Provider"),
         ("question_mark", "show_help", "Help"),
-        ("ctrl+q", "quit", "Quit"),
+        ("q", "quit", "Quit"),
     ]
 
     def __init__(self, workspace: Path, config: ProjectConfig) -> None:
@@ -214,7 +214,7 @@ class MainScreen(Screen):
 
     def action_show_help(self) -> None:
         self.notify(
-            "space:select  enter:audit  a:all  o:load  tab:switch  ctrl+p:provider  ctrl+q:quit",
+            "space:select  enter:audit  a:all  o:load  tab:switch  ctrl+p:provider  q:quit",
             title="Keybindings",
             timeout=8,
         )
