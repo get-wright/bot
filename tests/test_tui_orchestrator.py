@@ -53,7 +53,7 @@ class TestAuditOrchestrator:
         step_names = [s.step for s in steps]
         assert "fingerprint" in step_names
         assert "classify" in step_names
-        assert "read_files" in step_names
+        assert "read_file" in step_names
         assert "context_assembly" in step_names
         # No LLM step since llm_client is None
         assert "llm_call" not in step_names

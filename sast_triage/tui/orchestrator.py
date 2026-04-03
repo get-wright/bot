@@ -119,18 +119,30 @@ class AuditOrchestrator:
         for path in paths_needed:
             if not self._is_path_allowed(path):
                 continue
+            filename = Path(path).name
+            yield AuditStepResult(
+                step="read_file",
+                icon="◐",
+                message=f"Reading {filename}",
+                detail=path,
+            )
             try:
                 file_contents[path] = Path(path).read_bytes()
+                line_count = file_contents[path].count(b"\n") + 1
+                yield AuditStepResult(
+                    step="read_file",
+                    icon="✓",
+                    message=f"Read {filename}",
+                    detail=f"{line_count} lines",
+                )
             except (FileNotFoundError, OSError) as e:
                 logger.warning("Could not read file %s: %s", path, e)
-
-        read_detail = "\n".join(f"{p} OK" for p in file_contents)
-        yield AuditStepResult(
-            step="read_files",
-            icon="✓",
-            message="Reading source files",
-            detail=read_detail,
-        )
+                yield AuditStepResult(
+                    step="read_file",
+                    icon="✗",
+                    message=f"Failed to read {filename}",
+                    detail=str(e),
+                )
 
         # Step 4: Context assembly
         memory_hints: list[str] = []
