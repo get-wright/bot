@@ -165,7 +165,19 @@ function MainScreen({
       </Box>
       <Box width={panelWidth} flexDirection="column" borderStyle="single" overflow="hidden">
         {viewMode === "filtered" ? (
-          <Text>Select a finding to investigate.</Text>
+          filteredFindings[selectedIndex] ? (
+            <Box flexDirection="column" padding={1}>
+              <Text bold>Rule: {filteredFindings[selectedIndex].finding.check_id}</Text>
+              <Text>File: {filteredFindings[selectedIndex].finding.path}:{filteredFindings[selectedIndex].finding.start.line}</Text>
+              <Text>Severity: {filteredFindings[selectedIndex].finding.extra.severity}</Text>
+              <Text> </Text>
+              <Text color="yellow">Filtered: {filteredFindings[selectedIndex].reason}</Text>
+              <Text> </Text>
+              <Text wrap="wrap">{filteredFindings[selectedIndex].finding.extra.message}</Text>
+            </Box>
+          ) : (
+            <Text>No filtered findings.</Text>
+          )
         ) : selected ? (
           <AgentPanel
             events={selected.events}
