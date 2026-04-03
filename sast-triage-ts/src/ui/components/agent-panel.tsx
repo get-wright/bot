@@ -3,9 +3,13 @@ import { Box, Text } from "ink";
 import type { AgentEvent } from "../../models/events.js";
 import { VerdictBanner } from "./verdict-banner.js";
 
+function clip(text: string, maxWidth: number): string {
+  if (text.length <= maxWidth) return text;
+  return text.slice(0, maxWidth - 1) + "…";
+}
+
 /**
  * Collapse consecutive thinking events into single text blocks.
- * Returns a mixed array of: { type: "thinking_block", text: string } | AgentEvent
  */
 function collapseEvents(events: AgentEvent[]): (AgentEvent | { type: "thinking_block"; text: string })[] {
   const result: (AgentEvent | { type: "thinking_block"; text: string })[] = [];
@@ -28,7 +32,7 @@ function collapseEvents(events: AgentEvent[]): (AgentEvent | { type: "thinking_b
   return result;
 }
 
-export function AgentPanel({ events, isActive }: { events: AgentEvent[]; isActive: boolean }) {
+export function AgentPanel({ events, isActive, width }: { events: AgentEvent[]; isActive: boolean; width: number }) {
   if (events.length === 0 && !isActive) {
     return (
       <Box padding={1}>
@@ -38,6 +42,7 @@ export function AgentPanel({ events, isActive }: { events: AgentEvent[]; isActiv
   }
 
   const collapsed = collapseEvents(events);
+  const w = width - 2; // account for padding
 
   return (
     <Box flexDirection="column" padding={1} overflow="hidden">
@@ -45,7 +50,7 @@ export function AgentPanel({ events, isActive }: { events: AgentEvent[]; isActiv
         if (item.type === "thinking_block") {
           return <Text key={i} wrap="wrap">{item.text}</Text>;
         }
-        return <EventLine key={i} event={item as AgentEvent} />;
+        return <EventLine key={i} event={item as AgentEvent} maxWidth={w} />;
       })}
       {isActive && events.length > 0 && (
         <Text color="yellow">  Investigating...</Text>
@@ -54,27 +59,27 @@ export function AgentPanel({ events, isActive }: { events: AgentEvent[]; isActiv
   );
 }
 
-function EventLine({ event }: { event: AgentEvent }) {
+function EventLine({ event, maxWidth }: { event: AgentEvent; maxWidth: number }) {
   switch (event.type) {
     case "tool_start":
-      return <Text color="cyan" wrap="truncate">  * {formatToolStart(event.tool, event.args)}</Text>;
+      return <Text color="cyan">{clip(`  * ${formatToolStart(event.tool, event.args)}`, maxWidth)}</Text>;
     case "tool_result": {
       const lines = event.summary.split("\n");
       return (
-        <Box flexDirection="column">
-          {lines.map((line, i) => (
-            <Text key={i} dimColor wrap="truncate">    {i === 0 ? "-> " : "   "}{line}</Text>
-          ))}
-        </Box>
+        <>
+          {lines.map((line, i) => {
+            const prefix = i === 0 ? "    -> " : "       ";
+            return <Text key={i} dimColor>{clip(`${prefix}${line}`, maxWidth)}</Text>;
+          })}
+        </>
       );
     }
     case "thinking":
-      // Should not reach here after collapse, but handle gracefully
       return <Text wrap="wrap">{event.delta}</Text>;
     case "verdict":
       return <VerdictBanner verdict={event.verdict} />;
     case "error":
-      return <Text color="red" wrap="truncate">  ! {event.message}</Text>;
+      return <Text color="red">{clip(`  ! ${event.message}`, maxWidth)}</Text>;
   }
 }
 

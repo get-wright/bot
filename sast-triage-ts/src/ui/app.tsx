@@ -182,6 +182,7 @@ function MainScreen({
           <AgentPanel
             events={selected.events}
             isActive={isTriaging && selectedIndex === findingStates.indexOf(selected)}
+            width={panelWidth - 4}
           />
         ) : (
           <Text>Select a finding and press Enter to investigate.</Text>
