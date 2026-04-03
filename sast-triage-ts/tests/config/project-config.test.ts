@@ -72,4 +72,52 @@ describe("ProjectConfig", () => {
     cfg.save();
     expect(cfg.hasConfig()).toBe(true);
   });
+
+  it("loads and saves reasoning_effort", () => {
+    writeFileSync(
+      join(workspace, ".sast-triage.toml"),
+      [
+        "[provider]",
+        'name = "openai"',
+        'model = "o3-mini"',
+        'reasoning_effort = "high"',
+      ].join("\n"),
+    );
+    const cfg = new ProjectConfig(workspace);
+    expect(cfg.reasoningEffort).toBe("high");
+
+    cfg.reasoningEffort = "low";
+    cfg.save();
+
+    const cfg2 = new ProjectConfig(workspace);
+    expect(cfg2.reasoningEffort).toBe("low");
+  });
+
+  it("loads and saves allowed_paths", () => {
+    writeFileSync(
+      join(workspace, ".sast-triage.toml"),
+      [
+        "[provider]",
+        'name = "openai"',
+        'model = "gpt-4o"',
+        "",
+        "[workspace]",
+        'allowed_paths = ["/tmp/extra", "/opt/lib"]',
+      ].join("\n"),
+    );
+    const cfg = new ProjectConfig(workspace);
+    expect(cfg.allowedPaths).toEqual(["/tmp/extra", "/opt/lib"]);
+
+    cfg.allowedPaths = ["/new/path"];
+    cfg.save();
+
+    const cfg2 = new ProjectConfig(workspace);
+    expect(cfg2.allowedPaths).toEqual(["/new/path"]);
+  });
+
+  it("defaults reasoning_effort to undefined and allowed_paths to empty", () => {
+    const cfg = new ProjectConfig(workspace);
+    expect(cfg.reasoningEffort).toBeUndefined();
+    expect(cfg.allowedPaths).toEqual([]);
+  });
 });

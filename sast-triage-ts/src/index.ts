@@ -26,6 +26,7 @@ program
   .option("--allow-bash", "Enable bash tool for agent", false)
   .option("--max-steps <n>", "Max agent loop steps per finding", "15")
   .option("--memory-db <path>", "SQLite memory DB path", ".sast-triage/memory.db")
+  .option("--effort <level>", "Reasoning effort: low, medium, high")
   .action(async (findingsPath: string | undefined, opts) => {
     const config = resolveConfig({
       findingsPath,
@@ -36,6 +37,10 @@ program
       maxSteps: parseInt(opts.maxSteps, 10),
       memoryDb: opts.memoryDb,
     });
+
+    if (opts.effort) {
+      (config as Record<string, unknown>).reasoningEffort = opts.effort;
+    }
 
     // Headless mode requires all args
     if (config.headless) {
@@ -51,7 +56,7 @@ program
       const fullConfig = config as AppConfig;
       fullConfig.apiKey = projectConfig.resolvedApiKey();
       fullConfig.baseUrl = projectConfig.baseUrl;
-      await runHeadless(fullConfig);
+      await runHeadless(fullConfig, projectConfig);
       return;
     }
 
@@ -78,7 +83,7 @@ program
     memory.close();
   });
 
-async function runHeadless(config: AppConfig): Promise<void> {
+async function runHeadless(config: AppConfig, projectConfig: ProjectConfig): Promise<void> {
   const rawInput = readInput(config.findingsPath);
   const raw = JSON.parse(rawInput);
   const findings = parseSemgrepOutput(raw);
@@ -121,6 +126,8 @@ async function runHeadless(config: AppConfig): Promise<void> {
       memoryHints,
       apiKey: config.apiKey,
       baseUrl: config.baseUrl,
+      reasoningEffort: config.reasoningEffort,
+      allowedPaths: projectConfig.allowedPaths,
     });
 
     memory.store({
