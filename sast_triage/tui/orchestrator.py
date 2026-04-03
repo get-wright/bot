@@ -128,12 +128,14 @@ class AuditOrchestrator:
             )
             try:
                 file_contents[path] = Path(path).read_bytes()
-                line_count = file_contents[path].count(b"\n") + 1
+                preview = self._build_file_preview(
+                    path, file_contents[path], finding,
+                )
                 yield AuditStepResult(
                     step="read_file",
                     icon="✓",
                     message=f"Read {filename}",
-                    detail=f"{line_count} lines",
+                    detail=preview,
                 )
             except (FileNotFoundError, OSError) as e:
                 logger.warning("Could not read file %s: %s", path, e)
@@ -252,3 +254,50 @@ class AuditOrchestrator:
             for iv in trace.intermediate_vars:
                 paths.add(iv.location.path)
         return sorted(paths)
+
+    def _build_file_preview(
+        self, path: str, source: bytes, finding: SemgrepFinding
+    ) -> str:
+        line_count = source.count(b"\n") + 1
+        parts = [f"{line_count} lines"]
+
+        language = self._extractor.detect_language(path)
+        if not language or not source:
+            return parts[0]
+
+        target_line = finding.start.line if path == finding.path else None
+
+        if target_line:
+            sig = self._extractor.extract_function_signature(source, target_line, language)
+            if sig:
+                parts.append(f"↳ function: {sig.strip()[:80]}")
+
+            decorators = self._extractor.extract_decorators(source, target_line, language)
+            if decorators:
+                parts.append(f"↳ decorators: {', '.join(d.strip() for d in decorators[:3])}")
+
+        imports = self._extractor.extract_imports(source, language)
+        if imports:
+            security_keywords = ("auth", "sanitize", "escape", "csrf", "jwt", "bcrypt",
+                                 "crypto", "hashlib", "hmac", "session", "permission",
+                                 "security", "safe", "validator", "clean", "filter",
+                                 "middleware", "guard", "cors", "helmet")
+            relevant = [i for i in imports if any(k in i.lower() for k in security_keywords)]
+            if relevant:
+                for imp in relevant[:3]:
+                    parts.append(f"↳ import: {imp.strip()[:80]}")
+            else:
+                parts.append(f"↳ {len(imports)} imports")
+
+        trace = finding.extra.dataflow_trace
+        if trace and path != finding.path:
+            if trace.taint_source and trace.taint_source.location.path == path:
+                parts.append(f"↳ contains taint source (line {trace.taint_source.location.start.line})")
+            if trace.taint_sink and trace.taint_sink.location.path == path:
+                parts.append(f"↳ contains taint sink (line {trace.taint_sink.location.start.line})")
+            for iv in trace.intermediate_vars:
+                if iv.location.path == path:
+                    parts.append(f"↳ intermediate var (line {iv.location.start.line})")
+                    break
+
+        return "\n".join(parts)
