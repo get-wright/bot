@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useRef } from "react";
 import { Box, Text, useInput, useApp } from "ink";
 import { withFullScreen } from "fullscreen-ink";
 import { readFileSync } from "node:fs";
@@ -6,14 +6,15 @@ import { resolve } from "node:path";
 import type { Finding } from "../models/finding.js";
 import type { AppConfig } from "../config.js";
 import type { MemoryStore } from "../memory/store.js";
-import type { AgentEvent } from "../models/events.js";
+import type { AgentEvent, PermissionDecision } from "../models/events.js";
 import type { TriageVerdict } from "../models/verdict.js";
 import { parseSemgrepOutput, fingerprintFinding } from "../parser/semgrep.js";
 import { prefilterFinding } from "../parser/prefilter.js";
 import { runAgentLoop } from "../agent/loop.js";
+import { runFollowUp, type FollowUpExchange } from "../agent/follow-up.js";
 import { FindingsTable, type FindingEntry, type FindingStatus } from "./components/findings-table.js";
 import { AgentPanel } from "./components/agent-panel.js";
-import { Sidebar } from "./components/sidebar.js";
+import { Sidebar, type QueueItem, type UsageStats } from "./components/sidebar.js";
 import { SetupScreen, type SetupResult } from "./components/setup-screen.js";
 import { ProjectConfig } from "../config/project-config.js";
 
@@ -30,12 +31,14 @@ function MainScreen({
   totalCount,
   config,
   memory,
+  onSwitchProvider,
 }: {
   findings: Finding[];
   filteredFindings: { finding: Finding; reason: string }[];
   totalCount: number;
   config: AppConfig;
   memory: MemoryStore;
+  onSwitchProvider?: () => void;
 }) {
   const { exit } = useApp();
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -54,79 +57,258 @@ function MainScreen({
     })),
   );
   const [isTriaging, setIsTriaging] = useState(false);
+  const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
+  const [queueState, setQueueState] = useState<{
+    items: number[];
+    currentIndex: number;
+    isRunning: boolean;
+  } | null>(null);
+  const [sessionUsage, setSessionUsage] = useState<UsageStats>({ inputTokens: 0, outputTokens: 0, totalTokens: 0 });
+  const [currentUsage, setCurrentUsage] = useState<UsageStats | undefined>();
+  const [showFollowUp, setShowFollowUp] = useState(false);
+  const [followUpExchanges, setFollowUpExchanges] = useState<Map<number, FollowUpExchange[]>>(new Map());
+  const stopQueueRef = useRef(false);
+  const pendingPermissionRef = useRef<((decision: PermissionDecision) => void) | null>(null);
 
   const triaged = findingStates.filter((s) => s.verdict != null).length;
   const selected = findingStates[selectedIndex];
 
-  const triageCurrent = useCallback(async () => {
-    if (isTriaging || !selected || selected.verdict) return;
+  const triageIndex = useCallback(
+    async (idx: number) => {
+      const state = findingStates[idx];
+      if (!state || state.verdict) return;
+
+      setFindingStates((prev) =>
+        prev.map((s, i) =>
+          i === idx
+            ? { ...s, entry: { ...s.entry, status: "in_progress" as FindingStatus }, events: [] }
+            : s,
+        ),
+      );
+      setCurrentUsage(undefined);
+      setSelectedIndex(idx);
+
+      const fp = state.entry.fingerprint;
+      const memoryHints = memory.getHints(state.finding.check_id, fp);
+
+      const verdict = await runAgentLoop({
+        finding: state.finding,
+        projectRoot: process.cwd(),
+        provider: config.provider,
+        model: config.model,
+        maxSteps: config.maxSteps,
+        allowBash: config.allowBash,
+        onEvent: (event) => {
+          if (event.type === "usage") {
+            const usage = { inputTokens: event.inputTokens, outputTokens: event.outputTokens, totalTokens: event.totalTokens };
+            setCurrentUsage(usage);
+            setSessionUsage((prev) => ({
+              inputTokens: prev.inputTokens + event.inputTokens,
+              outputTokens: prev.outputTokens + event.outputTokens,
+              totalTokens: prev.totalTokens + event.totalTokens,
+            }));
+          }
+          if (event.type === "permission_request") {
+            pendingPermissionRef.current = event.resolve;
+          }
+          setFindingStates((prev) =>
+            prev.map((s, i) => (i === idx ? { ...s, events: [...s.events, event] } : s)),
+          );
+        },
+        memoryHints,
+        apiKey: config.apiKey,
+        baseUrl: config.baseUrl,
+        reasoningEffort: config.reasoningEffort,
+        allowedPaths: config.allowedPaths,
+      });
+
+      memory.store({
+        fingerprint: fp,
+        check_id: state.finding.check_id,
+        path: state.finding.path,
+        verdict: verdict.verdict,
+        reasoning: verdict.reasoning,
+      });
+
+      setFindingStates((prev) =>
+        prev.map((s, i) =>
+          i === idx
+            ? { ...s, verdict, entry: { ...s.entry, status: verdict.verdict as FindingStatus } }
+            : s,
+        ),
+      );
+      pendingPermissionRef.current = null;
+
+      return verdict;
+    },
+    [findingStates, config, memory],
+  );
+
+  const startBatchQueue = useCallback(
+    async (indices: number[]) => {
+      if (isTriaging || indices.length === 0) return;
+      setIsTriaging(true);
+      stopQueueRef.current = false;
+
+      setQueueState({ items: indices, currentIndex: 0, isRunning: true });
+
+      for (let qi = 0; qi < indices.length; qi++) {
+        if (stopQueueRef.current) break;
+        setQueueState({ items: indices, currentIndex: qi, isRunning: true });
+        await triageIndex(indices[qi]!);
+      }
+
+      setQueueState(null);
+      setIsTriaging(false);
+      setSelectedIndices(new Set());
+    },
+    [isTriaging, triageIndex],
+  );
+
+  const reauditCurrent = useCallback(async () => {
+    if (isTriaging) return;
+    const state = findingStates[selectedIndex];
+    if (!state || !state.verdict) return;
+
+    setFindingStates((prev) =>
+      prev.map((s, i) =>
+        i === selectedIndex
+          ? { ...s, verdict: undefined, events: [], entry: { ...s.entry, status: "pending" as FindingStatus } }
+          : s,
+      ),
+    );
+    setFollowUpExchanges((prev) => {
+      const next = new Map(prev);
+      next.delete(selectedIndex);
+      return next;
+    });
+
     setIsTriaging(true);
-    const idx = selectedIndex;
-
-    setFindingStates((prev) =>
-      prev.map((s, i) =>
-        i === idx
-          ? { ...s, entry: { ...s.entry, status: "in_progress" as FindingStatus }, events: [] }
-          : s,
-      ),
-    );
-
-    const fp = selected.entry.fingerprint;
-    const memoryHints = memory.getHints(selected.finding.check_id, fp);
-
-    const verdict = await runAgentLoop({
-      finding: selected.finding,
-      projectRoot: process.cwd(),
-      provider: config.provider,
-      model: config.model,
-      maxSteps: config.maxSteps,
-      allowBash: config.allowBash,
-      onEvent: (event) => {
-        setFindingStates((prev) =>
-          prev.map((s, i) => (i === idx ? { ...s, events: [...s.events, event] } : s)),
-        );
-      },
-      memoryHints,
-      apiKey: config.apiKey,
-      baseUrl: config.baseUrl,
-    });
-
-    memory.store({
-      fingerprint: fp,
-      check_id: selected.finding.check_id,
-      path: selected.finding.path,
-      verdict: verdict.verdict,
-      reasoning: verdict.reasoning,
-    });
-
-    setFindingStates((prev) =>
-      prev.map((s, i) =>
-        i === idx
-          ? { ...s, verdict, entry: { ...s.entry, status: verdict.verdict as FindingStatus } }
-          : s,
-      ),
-    );
-
+    await triageIndex(selectedIndex);
     setIsTriaging(false);
-  }, [selectedIndex, selected, isTriaging, config, memory]);
+  }, [selectedIndex, findingStates, isTriaging, triageIndex]);
+
+  const handleFollowUp = useCallback(
+    async (question: string) => {
+      const state = findingStates[selectedIndex];
+      if (!state?.verdict) return;
+
+      setShowFollowUp(false);
+      setIsTriaging(true);
+
+      const priorExchanges = followUpExchanges.get(selectedIndex) ?? [];
+
+      const answer = await runFollowUp({
+        finding: state.finding,
+        previousVerdict: state.verdict,
+        question,
+        priorExchanges,
+        provider: config.provider,
+        model: config.model,
+        onEvent: (event) => {
+          setFindingStates((prev) =>
+            prev.map((s, i) =>
+              i === selectedIndex ? { ...s, events: [...s.events, event] } : s,
+            ),
+          );
+        },
+        apiKey: config.apiKey,
+        baseUrl: config.baseUrl,
+        reasoningEffort: config.reasoningEffort,
+      });
+
+      setFollowUpExchanges((prev) => {
+        const next = new Map(prev);
+        const existing = next.get(selectedIndex) ?? [];
+        next.set(selectedIndex, [...existing, { question, answer }]);
+        return next;
+      });
+      setIsTriaging(false);
+    },
+    [selectedIndex, findingStates, followUpExchanges, config],
+  );
+
+  const handlePermissionResolve = useCallback((decision: PermissionDecision) => {
+    if (pendingPermissionRef.current) {
+      pendingPermissionRef.current(decision);
+      pendingPermissionRef.current = null;
+    }
+  }, []);
 
   const listLength = viewMode === "active" ? findingStates.length : filteredFindings.length;
 
   useInput((input, key) => {
+    if (showFollowUp) return;
+
     if (input === "q") {
       exit();
       return;
     }
+
+    // Permission response
+    if (pendingPermissionRef.current) {
+      if (input === "a") { handlePermissionResolve("once"); return; }
+      if (input === "d") { handlePermissionResolve("always"); return; }
+      if (input === "x") { handlePermissionResolve("deny"); return; }
+      return;
+    }
+
     if (key.tab) {
       setViewMode(viewMode === "active" ? "filtered" : "active");
       setSelectedIndex(0);
       return;
     }
     if (key.upArrow && selectedIndex > 0) setSelectedIndex(selectedIndex - 1);
-    if (key.downArrow && selectedIndex < listLength - 1)
-      setSelectedIndex(selectedIndex + 1);
+    if (key.downArrow && selectedIndex < listLength - 1) setSelectedIndex(selectedIndex + 1);
+
+    // Space: toggle selection
+    if (input === " " && viewMode === "active" && !isTriaging) {
+      setSelectedIndices((prev) => {
+        const next = new Set(prev);
+        if (next.has(selectedIndex)) next.delete(selectedIndex);
+        else next.add(selectedIndex);
+        return next;
+      });
+      return;
+    }
+
+    // a: select all
+    if (input === "a" && viewMode === "active" && !isTriaging) {
+      setSelectedIndices(new Set(findingStates.map((_, i) => i).filter((i) => !findingStates[i]!.verdict)));
+      return;
+    }
+
+    // Enter: start triage
     if (key.return && !isTriaging && viewMode === "active") {
-      triageCurrent();
+      const indices = selectedIndices.size > 0
+        ? [...selectedIndices].filter((i) => !findingStates[i]!.verdict).sort((a, b) => a - b)
+        : [selectedIndex];
+      startBatchQueue(indices);
+      return;
+    }
+
+    // Esc: stop batch queue
+    if (key.escape && queueState?.isRunning) {
+      stopQueueRef.current = true;
+      return;
+    }
+
+    // r: re-audit
+    if (input === "r" && viewMode === "active" && !isTriaging) {
+      reauditCurrent();
+      return;
+    }
+
+    // f: follow-up
+    if (input === "f" && viewMode === "active" && !isTriaging && selected?.verdict) {
+      setShowFollowUp(true);
+      return;
+    }
+
+    // Ctrl+P: switch provider
+    if (input === "p" && key.ctrl && !isTriaging) {
+      onSwitchProvider?.();
+      return;
     }
   });
 
@@ -144,6 +326,7 @@ function MainScreen({
             findings={findingStates.map((s) => s.entry)}
             selectedIndex={selectedIndex}
             triaged={triaged}
+            selectedIndices={selectedIndices}
           />
         ) : (
           <Box flexDirection="column" padding={1}>
@@ -183,6 +366,9 @@ function MainScreen({
             events={selected.events}
             isActive={isTriaging && selectedIndex === findingStates.indexOf(selected)}
             width={panelWidth - 4}
+            showFollowUpInput={showFollowUp}
+            onFollowUp={handleFollowUp}
+            onPermissionResolve={handlePermissionResolve}
           />
         ) : (
           <Text>Select a finding and press Enter to investigate.</Text>
@@ -200,6 +386,15 @@ function MainScreen({
             nr={findingStates.filter((s) => s.verdict?.verdict === "needs_review").length}
             provider={config.provider}
             model={config.model}
+            queue={queueState ? queueState.items.map((idx, qi) => ({
+              label: findingStates[idx]!.finding.check_id.split(".").pop() ?? "",
+              status: qi < queueState.currentIndex ? "done" as const
+                : qi === queueState.currentIndex ? "active" as const
+                : "pending" as const,
+              verdict: findingStates[idx]!.verdict?.verdict,
+            })) : undefined}
+            sessionUsage={sessionUsage}
+            currentUsage={currentUsage}
           />
         </Box>
       )}
@@ -223,6 +418,8 @@ function App({
     effectiveConfig.model ??= projectConfig.model;
     effectiveConfig.apiKey ??= projectConfig.resolvedApiKey();
     effectiveConfig.baseUrl ??= projectConfig.baseUrl;
+    effectiveConfig.reasoningEffort ??= projectConfig.reasoningEffort;
+    effectiveConfig.allowedPaths ??= projectConfig.allowedPaths.length > 0 ? projectConfig.allowedPaths : undefined;
   }
 
   const [screen, setScreen] = useState<"setup" | "main">(
@@ -238,6 +435,12 @@ function App({
   const [findings, setFindings] = useState<Finding[]>([]);
   const [filteredFindings, setFilteredFindings] = useState<{ finding: Finding; reason: string }[]>([]);
   const [totalCount, setTotalCount] = useState(0);
+  const [switchingProvider, setSwitchingProvider] = useState(false);
+
+  const handleSwitchProvider = useCallback(() => {
+    setSwitchingProvider(true);
+    setScreen("setup");
+  }, []);
 
   const handleSetupComplete = useCallback(
     (result: SetupResult) => {
@@ -251,7 +454,16 @@ function App({
         memoryDb: initialConfig.memoryDb ?? ".sast-triage/memory.db",
         apiKey: result.apiKey,
         baseUrl: result.baseUrl,
+        reasoningEffort: result.reasoningEffort as AppConfig["reasoningEffort"],
+        allowedPaths: projectConfig.allowedPaths,
       };
+
+      if (switchingProvider) {
+        setConfig(fullConfig);
+        setScreen("main");
+        setSwitchingProvider(false);
+        return;
+      }
 
       const filePath = resolve(result.findingsPath);
       let raw: unknown;
@@ -285,11 +497,11 @@ function App({
       setTotalCount(allFindings.length);
       setScreen("main");
     },
-    [initialConfig, memory],
+    [initialConfig, memory, switchingProvider, projectConfig],
   );
 
   if (screen === "setup") {
-    return <SetupScreen cwd={process.cwd()} projectConfig={projectConfig} onComplete={handleSetupComplete} />;
+    return <SetupScreen cwd={process.cwd()} projectConfig={projectConfig} onComplete={handleSetupComplete} startStep={switchingProvider ? "provider" : undefined} />;
   }
 
   if (!config || findings.length === 0) {
@@ -303,6 +515,7 @@ function App({
       totalCount={totalCount}
       config={config}
       memory={memory}
+      onSwitchProvider={handleSwitchProvider}
     />
   );
 }
