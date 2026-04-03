@@ -1,0 +1,36 @@
+{
+  "name": "sast-triage",
+  "version": "0.1.0",
+  "description": "Agentic SAST finding triage via LLM-driven codebase exploration",
+  "type": "module",
+  "bin": {
+    "sast-triage": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "ai": "^5.0.0",
+    "@ai-sdk/openai": "^2.0.0",
+    "@ai-sdk/anthropic": "^2.0.0",
+    "@ai-sdk/google": "^2.0.0",
+    "@openrouter/ai-sdk-provider": "^0.4.0",
+    "better-sqlite3": "^11.0.0",
+    "commander": "^13.0.0",
+    "ink": "^5.1.0",
+    "@inkjs/ui": "^2.0.0",
+    "react": "^18.3.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.0",
+    "@types/node": "^22.0.0",
+    "@types/react": "^18.3.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}
