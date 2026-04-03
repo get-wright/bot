@@ -37,13 +37,11 @@ class AuditScreen(Screen):
         workspace: Path,
         config: ProjectConfig,
         findings: list[SemgrepFinding],
-        memory: MemoryStore | None = None,
     ) -> None:
         super().__init__()
         self._workspace = workspace
         self._config = config
         self._findings = findings
-        self._memory = memory
         self._current_index = 0
         self._current_verdict: TriageVerdict | None = None
         self._current_context: AssembledContext | None = None
@@ -61,10 +59,11 @@ class AuditScreen(Screen):
                 api_key=config.api_key,
             )
 
+        self._memory_db_path = config.memory_db_path
         self._orchestrator = AuditOrchestrator(
             workspace=workspace,
             llm_client=self._llm,
-            memory=memory,
+            memory_db_path=config.memory_db_path,
         )
         self._orchestrator.set_allowed_paths(config.allowed_paths)
 
@@ -81,6 +80,12 @@ class AuditScreen(Screen):
         yield Footer()
 
     def on_mount(self) -> None:
+        # Main-thread MemoryStore for star/unstar actions
+        self._main_memory = None
+        if self._memory_db_path:
+            from sast_triage.memory.store import MemoryStore
+            self._main_memory = MemoryStore(db_path=self._memory_db_path)
+
         sidebar = self.query_one(SessionSidebar)
         sidebar.set_session_info(
             self._config.provider_name,
@@ -208,8 +213,8 @@ class AuditScreen(Screen):
         tabs.active = "verdict" if tabs.active == "thinking" else "thinking"
 
     def action_star(self) -> None:
-        if self._memory and self._current_fingerprint:
-            self._memory.set_starred(self._current_fingerprint, True)
+        if self._main_memory and self._current_fingerprint:
+            self._main_memory.set_starred(self._current_fingerprint, True)
             self.notify("Verdict starred", severity="information", timeout=3)
 
     def action_reaudit(self) -> None:

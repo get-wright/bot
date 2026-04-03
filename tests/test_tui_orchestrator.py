@@ -47,7 +47,7 @@ class TestAuditOrchestrator:
         orch = AuditOrchestrator(
             workspace=tmp_path,
             llm_client=None,
-            memory=None,
+            memory_db_path=None,
         )
         steps = list(orch.audit_finding_iter(finding))
         step_names = [s.step for s in steps]
@@ -71,7 +71,7 @@ class TestAuditOrchestrator:
         orch = AuditOrchestrator(
             workspace=tmp_path,
             llm_client=mock_llm,
-            memory=None,
+            memory_db_path=None,
         )
         steps = list(orch.audit_finding_iter(finding))
         step_names = [s.step for s in steps]
@@ -85,7 +85,7 @@ class TestAuditOrchestrator:
         orch = AuditOrchestrator(
             workspace=tmp_path,
             llm_client=None,
-            memory=None,
+            memory_db_path=None,
         )
         steps = list(orch.audit_finding_iter(finding))
         read_step = next(s for s in steps if s.step == "read_files" and s.needs_permission)

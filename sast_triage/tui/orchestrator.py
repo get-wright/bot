@@ -40,11 +40,11 @@ class AuditOrchestrator:
         self,
         workspace: Path,
         llm_client: TriageLLMClient | None = None,
-        memory: MemoryStore | None = None,
+        memory_db_path: str | None = None,
     ) -> None:
         self._workspace = Path(workspace).resolve()
         self._llm = llm_client
-        self._memory = memory
+        self._memory_db_path = memory_db_path
         self._extractor = CodeExtractor()
         self._assembler = ContextAssembler(code_extractor=self._extractor)
         self._allowed_paths: list[str] = []
@@ -66,6 +66,22 @@ class AuditOrchestrator:
 
     def audit_finding_iter(
         self, finding: SemgrepFinding
+    ) -> Iterator[AuditStepResult]:
+        # Create a thread-local MemoryStore connection.
+        # SQLite connections cannot be shared across threads.
+        memory: MemoryStore | None = None
+        if self._memory_db_path:
+            from sast_triage.memory.store import MemoryStore
+            memory = MemoryStore(db_path=self._memory_db_path)
+
+        try:
+            yield from self._audit_finding_steps(finding, memory)
+        finally:
+            if memory:
+                memory.close()
+
+    def _audit_finding_steps(
+        self, finding: SemgrepFinding, memory: MemoryStore | None
     ) -> Iterator[AuditStepResult]:
         # Step 1: Fingerprint
         fp = fingerprint_finding(finding)
@@ -118,8 +134,8 @@ class AuditOrchestrator:
 
         # Step 4: Context assembly
         memory_hints: list[str] = []
-        if self._memory:
-            memory_hints = self._memory.get_hints(finding.check_id, fp)
+        if memory:
+            memory_hints = memory.get_hints(finding.check_id, fp)
 
         context = self._assembler.assemble(finding, file_contents, memory_hints)
         assembly_detail = f"Vulnerability class: {context.vulnerability_class}"
@@ -151,7 +167,7 @@ class AuditOrchestrator:
             verdict = self._llm.triage(context)
 
             # Step 6: Store
-            if self._memory and verdict:
+            if memory and verdict:
                 from sast_triage.models import TriageRecord
 
                 now = datetime.now(timezone.utc).isoformat()
@@ -165,7 +181,7 @@ class AuditOrchestrator:
                     created_at=now,
                     updated_at=now,
                 )
-                self._memory.store(record)
+                memory.store(record)
                 yield AuditStepResult(
                     step="stored",
                     icon="✓",

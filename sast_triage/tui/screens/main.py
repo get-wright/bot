@@ -191,7 +191,6 @@ class MainScreen(Screen):
                 workspace=self._workspace,
                 config=self._config,
                 findings=selected,
-                memory=self._memory,
             )
         )
 
