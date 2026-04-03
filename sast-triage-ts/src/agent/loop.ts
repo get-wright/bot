@@ -71,13 +71,33 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<TriageVerdi
     ? (resolveProviderOptions(config.provider, config.reasoningEffort) as Parameters<typeof streamText>[0]["providerOptions"])
     : undefined;
 
+  const systemPrompt = systemPromptParts.join("\n\n");
+
   const result = streamText({
     model: languageModel,
-    system: systemPromptParts.join("\n\n"),
+    system: systemPrompt,
     messages: [{ role: "user", content: userMessage }],
     tools,
     providerOptions,
     stopWhen: stepCountIs(maxSteps),
+    async prepareStep({ stepNumber }) {
+      // Penultimate step: warn the model to wrap up
+      if (stepNumber === maxSteps - 2) {
+        return {
+          system: systemPrompt +
+            "\n\nIMPORTANT: You have 1 step remaining after this one. Wrap up your investigation and call the verdict tool with your best assessment based on the evidence gathered so far.",
+        };
+      }
+      // Final step: force verdict tool only — model cannot do anything else
+      if (stepNumber === maxSteps - 1) {
+        return {
+          toolChoice: { type: "tool" as const, toolName: "verdict" },
+          activeTools: ["verdict"] as any,
+          system: systemPrompt +
+            "\n\nThis is your FINAL step. You MUST call the verdict tool now. Deliver your verdict based on all evidence gathered.",
+        };
+      }
+    },
     onChunk({ chunk }) {
       switch (chunk.type) {
         case "text-delta": {
