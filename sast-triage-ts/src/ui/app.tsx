@@ -202,14 +202,23 @@ function App({
   memory: MemoryStore;
   projectConfig: ProjectConfig;
 }) {
+  // Use saved config to fill in missing CLI args
+  const effectiveConfig = { ...initialConfig };
+  if (projectConfig.hasConfig()) {
+    effectiveConfig.provider ??= projectConfig.provider;
+    effectiveConfig.model ??= projectConfig.model;
+    effectiveConfig.apiKey ??= projectConfig.resolvedApiKey();
+    effectiveConfig.baseUrl ??= projectConfig.baseUrl;
+  }
+
   const [screen, setScreen] = useState<"setup" | "main">(
-    initialConfig.provider && initialConfig.model && initialConfig.findingsPath
+    effectiveConfig.provider && effectiveConfig.model && effectiveConfig.findingsPath
       ? "main"
       : "setup",
   );
   const [config, setConfig] = useState<AppConfig | null>(
     screen === "main"
-      ? (initialConfig as AppConfig)
+      ? (effectiveConfig as AppConfig)
       : null,
   );
   const [findings, setFindings] = useState<Finding[]>([]);
