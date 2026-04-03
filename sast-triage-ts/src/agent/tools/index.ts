@@ -20,7 +20,7 @@ export function createTools(config: ToolConfig): ToolSet {
     read: tool({
       description:
         "Read a file's contents with line numbers. Use offset/limit to read specific sections.",
-      parameters: z.object({
+      inputSchema: z.object({
         path: z.string().describe("File path relative to project root"),
         offset: z.number().optional().describe("Start line (1-indexed, default 1)"),
         limit: z.number().optional().describe("Max lines to read (default 200)"),
@@ -30,7 +30,7 @@ export function createTools(config: ToolConfig): ToolSet {
     grep: tool({
       description:
         "Search file contents using regex. Returns matching lines with file paths and line numbers.",
-      parameters: z.object({
+      inputSchema: z.object({
         pattern: z.string().describe("Regex pattern to search for"),
         path: z.string().optional().describe("Subdirectory to search in"),
         include: z.string().optional().describe("Glob filter (e.g. '*.py')"),
@@ -40,7 +40,7 @@ export function createTools(config: ToolConfig): ToolSet {
     glob: tool({
       description:
         "Find files matching a glob pattern. Returns file paths sorted by modification time.",
-      parameters: z.object({
+      inputSchema: z.object({
         pattern: z.string().describe("Glob pattern (e.g. '**/*.py')"),
         path: z.string().optional().describe("Subdirectory to search in"),
       }),
@@ -49,7 +49,7 @@ export function createTools(config: ToolConfig): ToolSet {
     verdict: tool({
       description:
         "Deliver your final triage verdict. Call this when you have enough evidence. This ends the investigation.",
-      parameters: TriageVerdictSchema,
+      inputSchema: TriageVerdictSchema,
       execute: async (args) => JSON.stringify(args),
     }),
   };
@@ -59,7 +59,7 @@ export function createTools(config: ToolConfig): ToolSet {
     tools.bash = tool({
       description:
         "Execute a shell command for read-only exploration (e.g., git log, git blame). Destructive commands are blocked.",
-      parameters: z.object({
+      inputSchema: z.object({
         command: z.string().describe("Shell command to execute"),
         timeout: z.number().optional().describe("Timeout in seconds (default 30)"),
       }),

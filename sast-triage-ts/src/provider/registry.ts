@@ -2,7 +2,7 @@ import { createOpenAI } from "@ai-sdk/openai";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
-import type { LanguageModelV1 } from "@ai-sdk/provider";
+import type { LanguageModel } from "ai";
 
 export const SUPPORTED_PROVIDERS = ["openai", "anthropic", "google", "openrouter"] as const;
 export type ProviderName = (typeof SUPPORTED_PROVIDERS)[number];
@@ -14,7 +14,7 @@ const ENV_KEYS: Record<ProviderName, string> = {
   openrouter: "OPENROUTER_API_KEY",
 };
 
-export function resolveProvider(provider: string, model: string): LanguageModelV1 {
+export function resolveProvider(provider: string, model: string): LanguageModel {
   if (!SUPPORTED_PROVIDERS.includes(provider as ProviderName)) {
     throw new Error(`Unknown provider: "${provider}". Supported: ${SUPPORTED_PROVIDERS.join(", ")}`);
   }
@@ -37,7 +37,7 @@ export function resolveProvider(provider: string, model: string): LanguageModelV
     }
     case "openrouter": {
       const openrouter = createOpenRouter({ apiKey });
-      return openrouter(model);
+      return openrouter(model) as unknown as LanguageModel;
     }
   }
 }
