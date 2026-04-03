@@ -75,6 +75,17 @@ class TriageLLMClient:
     def provider(self) -> Provider:
         return self._provider
 
+    def chat(self, messages: list[dict[str, str]]) -> str:
+        """Send raw chat messages and return the response text."""
+        kwargs: dict = {
+            "model": self._model,
+            "messages": messages,
+        }
+        if self._provider == Provider.OPENAI_REASONING:
+            kwargs["reasoning_effort"] = self._reasoning_effort
+        completion = self._client.chat.completions.create(**kwargs)
+        return completion.choices[0].message.content or ""
+
     def triage(self, context: AssembledContext) -> TriageVerdict:
         role = "developer" if self._provider == Provider.OPENAI_REASONING else "system"
         user_prompt = build_user_prompt(context)

@@ -39,6 +39,7 @@ class MainScreen(Screen):
         self._actionable: list[SemgrepFinding] = []
         self._filtered: list[tuple[SemgrepFinding, str]] = []
         self._classifications: dict[str, str] = {}
+        self._saved_records: dict[str, object] = {}
         self._memory = None
 
     def compose(self) -> ComposeResult:
@@ -134,17 +135,16 @@ class MainScreen(Screen):
 
         # Update sidebar
         sidebar = self.query_one(SessionSidebar)
-        sidebar.set_findings_info(path.name, len(self._actionable), len(self._filtered))
         sidebar.set_selected([])
 
         self.notify(f"Loaded {len(all_findings)} findings from {path.name}")
 
     def _load_saved_results(self, records) -> None:
         saved_table = self.query_one("#findings-saved", FindingsTable)
-        # Reuse DataTable directly for saved results (different column schema)
         saved_table.clear()
         if not saved_table.columns:
             saved_table.add_columns("★", "Rule ID", "Verdict", "Conf.", "Path", "Date")
+        self._saved_records = {r.fingerprint: r for r in records}
         for r in records:
             star = "★" if r.starred else " "
             rule_short = r.check_id.rsplit(".", 1)[-1] if "." in r.check_id else r.check_id
@@ -156,18 +156,25 @@ class MainScreen(Screen):
             saved_table.add_row(star, rule_short, verdict_short, conf, r.path, date, key=r.fingerprint)
 
     def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
-        # Update detail preview for actionable tab
         tabs = self.query_one(TabbedContent)
-        if tabs.active != "actionable":
-            return
-        table = self.query_one("#findings-actionable", FindingsTable)
-        finding = table.finding_at(event.cursor_row)
-        if finding:
-            self.query_one("#detail-rule", Static).update(f"Rule: {finding.check_id}")
-            cwe = ", ".join(finding.extra.metadata.cwe) if finding.extra.metadata.cwe else "—"
-            self.query_one("#detail-cwe", Static).update(f"CWE:  {cwe}")
-            msg = finding.extra.message[:120]
-            self.query_one("#detail-msg", Static).update(f"Msg:  {msg}")
+        if tabs.active == "actionable":
+            table = self.query_one("#findings-actionable", FindingsTable)
+            finding = table.finding_at(event.cursor_row)
+            if finding:
+                self.query_one("#detail-rule", Static).update(f"Rule: {finding.check_id}")
+                cwe = ", ".join(finding.extra.metadata.cwe) if finding.extra.metadata.cwe else "—"
+                self.query_one("#detail-cwe", Static).update(f"CWE:  {cwe}")
+                msg = finding.extra.message[:120]
+                self.query_one("#detail-msg", Static).update(f"Msg:  {msg}")
+        elif tabs.active == "saved":
+            keys = list(self._saved_records.keys())
+            if 0 <= event.cursor_row < len(keys):
+                record = self._saved_records[keys[event.cursor_row]]
+                self.query_one("#detail-rule", Static).update(f"Rule: {record.check_id}")
+                verdict_label = {"true_positive": "TRUE POSITIVE", "false_positive": "FALSE POSITIVE", "needs_review": "NEEDS REVIEW"}.get(record.verdict, record.verdict)
+                self.query_one("#detail-cwe", Static).update(f"Verdict: {verdict_label} ({record.confidence:.0%})")
+                reasoning = record.reasoning[:120] if record.reasoning else "—"
+                self.query_one("#detail-msg", Static).update(f"Reasoning: {reasoning}")
 
     def action_toggle_selection(self) -> None:
         table = self.query_one("#findings-actionable", FindingsTable)

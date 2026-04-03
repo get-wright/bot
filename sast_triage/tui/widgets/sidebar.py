@@ -13,8 +13,8 @@ class SessionSidebar(VerticalScroll):
 
     def compose(self):
         sections = [
-            "SESSION", "MEMORY", "FINDINGS",
-            "SELECTED", "FINDING", "TRACE", "QUEUE",
+            "SESSION", "MEMORY",
+            "SELECTED", "QUEUE", "FINISHED",
         ]
         for name in sections:
             title = Static(name, classes="sidebar-section-title")
@@ -40,12 +40,6 @@ class SessionSidebar(VerticalScroll):
     def set_memory_info(self, db_path: str, count: int) -> None:
         self.update_section("MEMORY", f"  {db_path}\n  {count} stored verdicts")
 
-    def set_findings_info(self, source: str, actionable: int, filtered: int) -> None:
-        self.update_section(
-            "FINDINGS",
-            f"  {source}\n  {actionable} actionable\n  {filtered} filtered",
-        )
-
     def set_selected(self, rules: list[str]) -> None:
         if not rules:
             self.update_section("SELECTED", "  none")
@@ -54,31 +48,6 @@ class SessionSidebar(VerticalScroll):
         if len(rules) > 8:
             lines += f"\n  ... +{len(rules) - 8} more"
         self.update_section("SELECTED", lines)
-
-    def set_finding_detail(
-        self, rule_id: str, path: str, line: int, severity: str, classification: str
-    ) -> None:
-        self.update_section(
-            "FINDING",
-            f"  {rule_id}\n  {path}:{line}\n  {severity} · {classification}",
-        )
-
-    def set_trace_info(
-        self,
-        source_expr: str = "",
-        source_loc: str = "",
-        sink_expr: str = "",
-        sink_loc: str = "",
-        intermediate_count: int = 0,
-    ) -> None:
-        parts = []
-        if source_expr:
-            parts.append(f"  source:\n    {source_expr}\n    {source_loc}")
-        if sink_expr:
-            parts.append(f"  sink:\n    {sink_expr}\n    {sink_loc}")
-        if intermediate_count:
-            parts.append(f"  {intermediate_count} intermediate vars")
-        self.update_section("TRACE", "\n".join(parts) if parts else "  no trace")
 
     def set_queue(self, items: list[tuple[int, str, str]]) -> None:
         """items: list of (index, label, status) e.g. (1, 'rule-xss', '✓ FP 81%')"""
@@ -91,3 +60,14 @@ class SessionSidebar(VerticalScroll):
             else:
                 lines.append(f"   {idx}.{short}")
         self.update_section("QUEUE", "\n".join(lines))
+
+    def set_finished(self, results: list[tuple[int, str, str]]) -> None:
+        """results: list of (index, label, verdict_status) for completed findings."""
+        if not results:
+            self.update_section("FINISHED", "  none yet")
+            return
+        lines = [f"  {len(results)} completed"]
+        for idx, label, status in results:
+            short = label[:18] + "…" if len(label) > 18 else label
+            lines.append(f" {status} {idx}.{short}")
+        self.update_section("FINISHED", "\n".join(lines))

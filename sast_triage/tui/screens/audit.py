@@ -147,15 +147,6 @@ class AuditScreen(Screen):
         verdict_panel.clear_verdict()
         self.query_one(TabbedContent).active = "thinking"
 
-        # Update sidebar finding detail
-        sidebar = self.query_one(SessionSidebar)
-        from sast_triage.parser import classify_finding
-        classification = classify_finding(finding)
-        sidebar.set_finding_detail(
-            finding.check_id, finding.path, finding.start.line,
-            finding.extra.severity, classification,
-        )
-
         self._current_verdict = None
         self._current_context = None
         self._audit_worker(finding)
@@ -190,16 +181,6 @@ class AuditScreen(Screen):
 
             if step_result.context:
                 self._current_context = step_result.context
-                trace = step_result.context.trace_context
-                if trace:
-                    self.app.call_from_thread(
-                        self.query_one(SessionSidebar).set_trace_info,
-                        trace.source_code or "",
-                        "",
-                        trace.sink_code or "",
-                        "",
-                        len(trace.intermediate_steps),
-                    )
 
             if step_result.verdict:
                 self._current_verdict = step_result.verdict
@@ -222,6 +203,16 @@ class AuditScreen(Screen):
         idx, label, _ = self._queue_status[self._current_index]
         self._queue_status[self._current_index] = (idx, label, f"✓ {short} {conf}")
         self._update_queue_sidebar()
+        self._update_finished_sidebar()
+
+    def _update_finished_sidebar(self) -> None:
+        sidebar = self.query_one(SessionSidebar)
+        finished = [
+            (idx, label, status)
+            for idx, label, status in self._queue_status
+            if status and status.startswith("✓")
+        ]
+        sidebar.set_finished(finished)
 
     def action_next_tab(self) -> None:
         tabs = self.query_one(TabbedContent)
@@ -269,14 +260,10 @@ class AuditScreen(Screen):
 
         role = "developer" if self._llm.provider == Provider.OPENAI_REASONING else "system"
         try:
-            completion = self._llm._client.chat.completions.create(
-                model=self._llm._model,
-                messages=[
-                    {"role": role, "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": user_prompt},
-                ],
-            )
-            response = completion.choices[0].message.content or ""
+            response = self._llm.chat([
+                {"role": role, "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt},
+            ])
             self.app.call_from_thread(
                 thinking_log.log_step, "→", "Follow-up answer", response
             )
