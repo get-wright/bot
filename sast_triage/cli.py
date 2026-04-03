@@ -11,19 +11,7 @@ from sast_triage.llm.client import Provider, TriageLLMClient
 from sast_triage.memory.store import MemoryStore
 from sast_triage.pipeline import TriagePipeline
 
-_REASONING_PREFIXES = ("o1", "o3", "o4")
-
 _PROVIDER_CHOICES = [p.value for p in Provider]
-
-
-def _infer_provider(model: str, base_url: str | None) -> Provider:
-    if base_url:
-        return Provider.OPENAI_COMPATIBLE
-    if model.startswith("claude"):
-        return Provider.ANTHROPIC
-    if any(model.startswith(p) for p in _REASONING_PREFIXES):
-        return Provider.OPENAI_REASONING
-    return Provider.OPENAI
 
 
 @click.group()
@@ -42,7 +30,7 @@ def main(verbose):
     "--provider",
     type=click.Choice(_PROVIDER_CHOICES),
     default=None,
-    help="LLM provider (auto-inferred from model name if omitted)",
+    help="LLM provider (required unless --no-llm)",
 )
 @click.option("--effort", default="medium", type=click.Choice(["low", "medium", "high"]),
               help="Reasoning effort for OpenAI reasoning models (ignored for other providers)")
@@ -61,10 +49,12 @@ def triage(input_file, model, provider, effort, base_url, api_key, memory_db, ou
 
     llm_client = None
     if not no_llm:
-        resolved_provider = Provider(provider) if provider else _infer_provider(model, base_url)
+        if not provider:
+            click.echo("Error: --provider is required when using LLM. Choose from: " + ", ".join(_PROVIDER_CHOICES), err=True)
+            raise SystemExit(1)
         llm_client = TriageLLMClient(
             model=model,
-            provider=resolved_provider,
+            provider=Provider(provider),
             reasoning_effort=effort,
             base_url=base_url,
             api_key=api_key,

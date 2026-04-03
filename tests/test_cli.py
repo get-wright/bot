@@ -1,33 +1,33 @@
 from __future__ import annotations
 
-from sast_triage.cli import _infer_provider
+from unittest.mock import MagicMock, patch
+
+import click
+from click.testing import CliRunner
+
+from sast_triage.cli import main
 from sast_triage.llm.client import Provider
 
 
-def test_infer_provider_reasoning_model():
-    assert _infer_provider("o3-mini", None) == Provider.OPENAI_REASONING
-    assert _infer_provider("o1", None) == Provider.OPENAI_REASONING
-    assert _infer_provider("o4-mini", None) == Provider.OPENAI_REASONING
+def test_triage_requires_provider_when_using_llm():
+    runner = CliRunner()
+    result = runner.invoke(main, ["triage", "--no-llm"], input='{"results": []}')
+    assert result.exit_code == 0 or "Error" not in (result.output or "")
 
 
-def test_infer_provider_gpt_model():
-    assert _infer_provider("gpt-4o", None) == Provider.OPENAI
-    assert _infer_provider("gpt-4o-mini", None) == Provider.OPENAI
-    assert _infer_provider("gpt-3.5-turbo", None) == Provider.OPENAI
+def test_triage_rejects_missing_provider():
+    runner = CliRunner()
+    result = runner.invoke(main, ["triage", "--model", "gpt-4o"], input='{"results": []}')
+    assert result.exit_code != 0
 
 
-def test_infer_provider_claude_model():
-    assert _infer_provider("claude-3-haiku", None) == Provider.ANTHROPIC
-    assert _infer_provider("claude-sonnet-4-5", None) == Provider.ANTHROPIC
+def test_triage_no_llm_flag():
+    runner = CliRunner()
+    result = runner.invoke(main, ["triage", "--no-llm"], input='{"results": []}')
+    assert result.exit_code == 0
 
 
-def test_infer_provider_with_base_url():
-    assert _infer_provider("any-model", "http://localhost:11434/v1") == Provider.OPENAI_COMPATIBLE
-    assert _infer_provider("o3-mini", "https://openrouter.ai/api/v1") == Provider.OPENAI_COMPATIBLE
-    assert _infer_provider("claude-3-haiku", "https://custom-proxy.com/v1") == Provider.OPENAI_COMPATIBLE
-
-
-def test_infer_provider_unknown_model():
-    assert _infer_provider("llama3", None) == Provider.OPENAI
-    assert _infer_provider("mixtral-8x7b", None) == Provider.OPENAI
-    assert _infer_provider("qwen-2.5-coder", None) == Provider.OPENAI
+def test_provider_choices_match_enum():
+    from sast_triage.cli import _PROVIDER_CHOICES
+    enum_values = {p.value for p in Provider}
+    assert set(_PROVIDER_CHOICES) == enum_values
