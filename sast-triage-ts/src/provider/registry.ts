@@ -1,0 +1,43 @@
+import { createOpenAI } from "@ai-sdk/openai";
+import { createAnthropic } from "@ai-sdk/anthropic";
+import { createGoogleGenerativeAI } from "@ai-sdk/google";
+import { createOpenRouter } from "@openrouter/ai-sdk-provider";
+import type { LanguageModelV1 } from "@ai-sdk/provider";
+
+export const SUPPORTED_PROVIDERS = ["openai", "anthropic", "google", "openrouter"] as const;
+export type ProviderName = (typeof SUPPORTED_PROVIDERS)[number];
+
+const ENV_KEYS: Record<ProviderName, string> = {
+  openai: "OPENAI_API_KEY",
+  anthropic: "ANTHROPIC_API_KEY",
+  google: "GOOGLE_API_KEY",
+  openrouter: "OPENROUTER_API_KEY",
+};
+
+export function resolveProvider(provider: string, model: string): LanguageModelV1 {
+  if (!SUPPORTED_PROVIDERS.includes(provider as ProviderName)) {
+    throw new Error(`Unknown provider: "${provider}". Supported: ${SUPPORTED_PROVIDERS.join(", ")}`);
+  }
+
+  const name = provider as ProviderName;
+  const apiKey = process.env[ENV_KEYS[name]];
+
+  switch (name) {
+    case "openai": {
+      const openai = createOpenAI({ apiKey });
+      return openai(model);
+    }
+    case "anthropic": {
+      const anthropic = createAnthropic({ apiKey });
+      return anthropic(model);
+    }
+    case "google": {
+      const google = createGoogleGenerativeAI({ apiKey });
+      return google(model);
+    }
+    case "openrouter": {
+      const openrouter = createOpenRouter({ apiKey });
+      return openrouter(model);
+    }
+  }
+}
