@@ -6,6 +6,7 @@ export interface AppConfig {
   allowBash: boolean;
   maxSteps: number;
   memoryDb: string;
+  apiKey?: string;
 }
 
 export function resolveConfig(opts: {

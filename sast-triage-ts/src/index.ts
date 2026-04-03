@@ -8,6 +8,7 @@ import type { AppConfig } from "./config.js";
 import { parseSemgrepOutput, fingerprintFinding } from "./parser/semgrep.js";
 import { prefilterFinding } from "./parser/prefilter.js";
 import { MemoryStore } from "./memory/store.js";
+import { ProjectConfig } from "./config/project-config.js";
 import { runAgentLoop } from "./agent/loop.js";
 import type { AgentEvent } from "./models/events.js";
 import type { Finding } from "./models/finding.js";
@@ -46,12 +47,16 @@ program
         console.error("Headless mode requires a findings file argument");
         process.exit(1);
       }
-      await runHeadless(config as AppConfig);
+      const projectConfig = new ProjectConfig(process.cwd());
+      const fullConfig = config as AppConfig;
+      fullConfig.apiKey = projectConfig.resolvedApiKey();
+      await runHeadless(fullConfig);
       return;
     }
 
     // TUI mode — setup screen handles missing config
-    const memory = new MemoryStore(resolve(config.memoryDb ?? ".sast-triage/memory.db"));
+    const projectConfig = new ProjectConfig(process.cwd());
+    const memory = new MemoryStore(resolve(projectConfig.memoryDbPath));
 
     // If all args provided, pre-load findings
     if (config.provider && config.model && config.findingsPath) {
@@ -68,7 +73,7 @@ program
     }
 
     const { runTui } = await import("./ui/app.js");
-    await runTui(config, memory);
+    await runTui(config, memory, projectConfig);
     memory.close();
   });
 
@@ -113,6 +118,7 @@ async function runHeadless(config: AppConfig): Promise<void> {
       allowBash: config.allowBash,
       onEvent,
       memoryHints,
+      apiKey: config.apiKey,
     });
 
     memory.store({

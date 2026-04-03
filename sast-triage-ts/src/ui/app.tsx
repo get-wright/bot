@@ -14,6 +14,7 @@ import { FindingsTable, type FindingEntry, type FindingStatus } from "./componen
 import { AgentPanel } from "./components/agent-panel.js";
 import { Sidebar } from "./components/sidebar.js";
 import { SetupScreen, type SetupResult } from "./components/setup-screen.js";
+import { ProjectConfig } from "../config/project-config.js";
 
 interface FindingState {
   entry: FindingEntry;
@@ -82,6 +83,7 @@ function MainScreen({
         );
       },
       memoryHints,
+      apiKey: config.apiKey,
     });
 
     memory.store({
@@ -162,9 +164,11 @@ function MainScreen({
 function App({
   initialConfig,
   memory,
+  projectConfig,
 }: {
   initialConfig: Partial<AppConfig>;
   memory: MemoryStore;
+  projectConfig: ProjectConfig;
 }) {
   const [screen, setScreen] = useState<"setup" | "main">(
     initialConfig.provider && initialConfig.model && initialConfig.findingsPath
@@ -189,6 +193,7 @@ function App({
         allowBash: initialConfig.allowBash ?? false,
         maxSteps: initialConfig.maxSteps ?? 15,
         memoryDb: initialConfig.memoryDb ?? ".sast-triage/memory.db",
+        apiKey: result.apiKey,
       };
 
       const filePath = resolve(result.findingsPath);
@@ -220,7 +225,7 @@ function App({
   );
 
   if (screen === "setup") {
-    return <SetupScreen cwd={process.cwd()} onComplete={handleSetupComplete} />;
+    return <SetupScreen cwd={process.cwd()} projectConfig={projectConfig} onComplete={handleSetupComplete} />;
   }
 
   if (!config || findings.length === 0) {
@@ -240,9 +245,10 @@ function App({
 export async function runTui(
   initialConfig: Partial<AppConfig>,
   memory: MemoryStore,
+  projectConfig: ProjectConfig,
 ): Promise<void> {
   const instance = render(
-    <App initialConfig={initialConfig} memory={memory} />,
+    <App initialConfig={initialConfig} memory={memory} projectConfig={projectConfig} />,
   );
   await instance.waitUntilExit();
 }
