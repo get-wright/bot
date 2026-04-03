@@ -1,0 +1,40 @@
+{
+  "results": [
+    {
+      "check_id": "python.django.security.injection.sql.raw-query",
+      "path": "src/api/views.py",
+      "start": { "line": 47, "col": 8, "offset": 1200 },
+      "end": { "line": 47, "col": 40, "offset": 1232 },
+      "extra": {
+        "message": "User input in raw SQL query",
+        "severity": "ERROR",
+        "metadata": {
+          "cwe": ["CWE-89: SQL Injection"],
+          "confidence": "HIGH",
+          "vulnerability_class": ["SQL Injection"],
+          "technology": ["django"],
+          "owasp": [],
+          "category": "security"
+        },
+        "lines": "cursor.execute(sql)",
+        "metavars": {},
+        "dataflow_trace": {
+          "taint_source": ["CliLoc", [
+            { "path": "src/api/views.py", "start": { "line": 32, "col": 12, "offset": 800 }, "end": { "line": 32, "col": 40, "offset": 828 } },
+            "request.GET.get('query')"
+          ]],
+          "intermediate_vars": [
+            ["CliLoc", [
+              { "path": "src/api/views.py", "start": { "line": 45, "col": 8, "offset": 1150 }, "end": { "line": 45, "col": 50, "offset": 1192 } },
+              "sql = f\"SELECT * FROM items WHERE name = '{query}'\""
+            ]]
+          ],
+          "taint_sink": ["CliLoc", [
+            { "path": "src/api/views.py", "start": { "line": 47, "col": 8, "offset": 1200 }, "end": { "line": 47, "col": 28, "offset": 1220 } },
+            "cursor.execute(sql)"
+          ]]
+        }
+      }
+    }
+  ]
+}

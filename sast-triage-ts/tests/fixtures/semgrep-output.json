@@ -1,0 +1,44 @@
+{
+  "results": [
+    {
+      "check_id": "python.django.security.injection.sql.raw-query",
+      "path": "src/api/views.py",
+      "start": { "line": 47, "col": 8, "offset": 1200 },
+      "end": { "line": 47, "col": 40, "offset": 1232 },
+      "extra": {
+        "message": "User input in raw SQL query",
+        "severity": "ERROR",
+        "metadata": {
+          "cwe": ["CWE-89: SQL Injection"],
+          "confidence": "HIGH",
+          "vulnerability_class": ["SQL Injection"],
+          "technology": ["django"],
+          "owasp": ["A03:2021"],
+          "category": "security"
+        },
+        "lines": "cursor.execute(sql)",
+        "metavars": {}
+      }
+    },
+    {
+      "check_id": "python.lang.security.audit.xss.template-unescaped",
+      "path": "src/templates/profile.html",
+      "start": { "line": 12, "col": 5, "offset": 300 },
+      "end": { "line": 12, "col": 30, "offset": 325 },
+      "extra": {
+        "message": "Unescaped template variable",
+        "severity": "WARNING",
+        "metadata": {
+          "cwe": ["CWE-79: Cross-site Scripting"],
+          "confidence": "MEDIUM",
+          "vulnerability_class": ["Cross-Site Scripting"],
+          "technology": [],
+          "owasp": [],
+          "category": "security"
+        },
+        "lines": "{{ user.name|safe }}",
+        "metavars": {}
+      }
+    }
+  ]
+}
