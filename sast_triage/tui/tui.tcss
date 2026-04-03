@@ -15,12 +15,6 @@ SessionSidebar {
     padding: 1 1;
 }
 
-@media (max-width: 119) {
-    SessionSidebar {
-        display: none;
-    }
-}
-
 .sidebar-section-title {
     color: $text-muted;
     text-style: bold;
