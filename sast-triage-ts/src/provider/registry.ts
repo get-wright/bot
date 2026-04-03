@@ -46,7 +46,7 @@ export function resolveProvider(provider: string, model: string, apiKey?: string
         apiKey: resolvedKey,
         baseURL: baseUrl ?? "https://openrouter.ai/api/v1",
       });
-      return openrouter(model);
+      return openrouter.chat(model);
     }
   }
 }

@@ -90,7 +90,12 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<TriageVerdi
   });
 
   // Consume the stream to completion
-  await result.text;
+  try {
+    await result.text;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    onEvent({ type: "error", message: `API error: ${message}` });
+  }
 
   if (!finalVerdict) {
     finalVerdict = {
