@@ -15,6 +15,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
+tui = ["textual>=8.0.0"]
 
 [project.scripts]
 sast-triage = "sast_triage.cli:main"

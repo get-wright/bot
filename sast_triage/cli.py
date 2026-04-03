@@ -100,3 +100,18 @@ def feedback(fingerprint, feedback_text, memory_db):
     else:
         click.echo(f"No record found for fingerprint {fingerprint}", err=True)
         sys.exit(1)
+
+
+@main.command()
+def ui():
+    """Launch interactive TUI."""
+    try:
+        from sast_triage.tui.app import SastTriageApp
+    except ImportError:
+        click.echo(
+            "TUI requires textual. Install with: pip install sast-triage[tui]",
+            err=True,
+        )
+        raise SystemExit(1)
+    app = SastTriageApp()
+    app.run()
