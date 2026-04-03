@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { Box, Text } from "ink";
 import TextInput from "ink-text-input";
 import type { AgentEvent } from "../../models/events.js";
-import { VerdictBanner } from "./verdict-banner.js";
+import type { TriageVerdict } from "../../models/verdict.js";
 
 /**
  * Clip text to maxWidth based on visual width.
@@ -10,17 +10,38 @@ import { VerdictBanner } from "./verdict-banner.js";
  * but count as 1 in string.length.
  */
 function clip(text: string, maxWidth: number): string {
-  // Expand tabs to spaces (tab stop = 4 in typical terminal code display)
   const expanded = text.replace(/\t/g, "    ");
   if (expanded.length <= maxWidth) return expanded;
   return expanded.slice(0, maxWidth - 1) + "…";
 }
 
+/** Word-wrap text to maxWidth, returning multiple lines. */
+function wrapText(text: string, maxWidth: number): string[] {
+  if (maxWidth <= 0) return [text];
+  const result: string[] = [];
+  const words = text.split(" ");
+  let line = "";
+  for (const word of words) {
+    if (line.length + word.length + (line ? 1 : 0) > maxWidth) {
+      if (line) result.push(line);
+      line = word.length > maxWidth ? word.slice(0, maxWidth - 1) + "…" : word;
+    } else {
+      line = line ? `${line} ${word}` : word;
+    }
+  }
+  if (line) result.push(line);
+  return result.length > 0 ? result : [""];
+}
+
+type CollapsedEvent =
+  | AgentEvent
+  | { type: "thinking_block"; text: string };
+
 /**
  * Collapse consecutive thinking events into single text blocks.
  */
-function collapseEvents(events: AgentEvent[]): (AgentEvent | { type: "thinking_block"; text: string })[] {
-  const result: (AgentEvent | { type: "thinking_block"; text: string })[] = [];
+function collapseEvents(events: AgentEvent[]): CollapsedEvent[] {
+  const result: CollapsedEvent[] = [];
   let pendingThinking = "";
 
   for (const event of events) {
@@ -71,12 +92,10 @@ export function AgentPanel({
     <Box flexDirection="column" padding={1} overflow="hidden">
       {collapsed.map((item, i) => {
         if (item.type === "thinking_block") {
-          // Manually wrap thinking text to panel width — Ink wrap="wrap" is unreliable in nested layouts
-          const lines = item.text.split("\n");
           return (
-            <Box key={i} flexDirection="column">
-              {lines.map((line, li) => (
-                <Text key={li}>{clip(line, w)}</Text>
+            <Box key={i} flexDirection="column" marginBottom={1}>
+              {wrapText(item.text, w).map((line, li) => (
+                <Text key={li} dimColor>{line}</Text>
               ))}
             </Box>
           );
@@ -84,7 +103,7 @@ export function AgentPanel({
         return <EventLine key={i} event={item as AgentEvent} maxWidth={w} />;
       })}
       {isActive && events.length > 0 && (
-        <Text color="yellow">  Investigating...</Text>
+        <Text color="yellow">{"\n"}  Investigating...</Text>
       )}
       {/* Permission prompt */}
       {(() => {
@@ -129,22 +148,20 @@ export function AgentPanel({
 function EventLine({ event, maxWidth }: { event: AgentEvent; maxWidth: number }) {
   switch (event.type) {
     case "tool_start":
-      return <Text color="cyan">{clip(`  * ${formatToolStart(event.tool, event.args)}`, maxWidth)}</Text>;
-    case "tool_result": {
-      const lines = event.summary.split("\n");
       return (
-        <>
-          {lines.map((line, i) => {
-            const prefix = i === 0 ? "    -> " : "       ";
-            return <Text key={i} dimColor>{clip(`${prefix}${line}`, maxWidth)}</Text>;
-          })}
-        </>
+        <Box marginTop={1}>
+          <Text color="cyan">{clip(`  * ${formatToolStart(event.tool, event.args)}`, maxWidth)}</Text>
+        </Box>
       );
+    case "tool_result": {
+      // Compact: show first line only, dimmed
+      const firstLine = event.summary.split("\n")[0] ?? "";
+      return <Text dimColor>{clip(`    -> ${firstLine}`, maxWidth)}</Text>;
     }
     case "thinking":
-      return <Text>{clip(event.delta, maxWidth)}</Text>;
+      return <Text dimColor>{clip(event.delta, maxWidth)}</Text>;
     case "verdict":
-      return <VerdictBanner verdict={event.verdict} />;
+      return <VerdictBanner verdict={event.verdict} maxWidth={maxWidth} />;
     case "error":
       return <Text color="red">{clip(`  ! ${event.message}`, maxWidth)}</Text>;
     case "usage":
@@ -160,8 +177,54 @@ function EventLine({ event, maxWidth }: { event: AgentEvent; maxWidth: number })
         </Box>
       );
     case "permission_request":
-      return null; // Rendered separately as interactive prompt
+      return null;
   }
+}
+
+/** Verdict banner with proper text wrapping */
+function VerdictBanner({ verdict, maxWidth }: { verdict: TriageVerdict; maxWidth: number }) {
+  const colors: Record<string, string> = {
+    true_positive: "red",
+    false_positive: "green",
+    needs_review: "#FF8C00",
+  };
+  const labels: Record<string, string> = {
+    true_positive: "TRUE POSITIVE",
+    false_positive: "FALSE POSITIVE",
+    needs_review: "NEEDS REVIEW",
+  };
+  const color = colors[verdict.verdict] ?? "white";
+  const label = labels[verdict.verdict] ?? verdict.verdict;
+  const contentWidth = maxWidth - 4; // account for paddingX
+
+  return (
+    <Box flexDirection="column" marginTop={1} paddingX={2}>
+      <Text bold color={color}># {label}</Text>
+      <Text> </Text>
+      <Text bold>Reasoning:</Text>
+      {wrapText(verdict.reasoning, contentWidth).map((line, i) => (
+        <Text key={`r-${i}`}>{line}</Text>
+      ))}
+      {verdict.key_evidence.length > 0 && (
+        <>
+          <Text> </Text>
+          <Text bold>Evidence:</Text>
+          {verdict.key_evidence.map((e, i) => (
+            <Text key={`e-${i}`}>{clip(`  - ${e}`, contentWidth)}</Text>
+          ))}
+        </>
+      )}
+      {verdict.suggested_fix && (
+        <>
+          <Text> </Text>
+          <Text bold>Fix:</Text>
+          {wrapText(verdict.suggested_fix, contentWidth).map((line, i) => (
+            <Text key={`f-${i}`}>{line}</Text>
+          ))}
+        </>
+      )}
+    </Box>
+  );
 }
 
 function formatTokenCount(n: number): string {
