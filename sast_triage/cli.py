@@ -7,9 +7,23 @@ from pathlib import Path
 
 import click
 
-from sast_triage.llm.client import TriageLLMClient
+from sast_triage.llm.client import Provider, TriageLLMClient
 from sast_triage.memory.store import MemoryStore
 from sast_triage.pipeline import TriagePipeline
+
+_REASONING_PREFIXES = ("o1", "o3", "o4")
+
+_PROVIDER_CHOICES = [p.value for p in Provider]
+
+
+def _infer_provider(model: str, base_url: str | None) -> Provider:
+    if base_url:
+        return Provider.OPENAI_COMPATIBLE
+    if model.startswith("claude"):
+        return Provider.ANTHROPIC
+    if any(model.startswith(p) for p in _REASONING_PREFIXES):
+        return Provider.OPENAI_REASONING
+    return Provider.OPENAI
 
 
 @click.group()
@@ -24,13 +38,20 @@ def main(verbose):
 @main.command()
 @click.argument("input_file", type=click.Path(exists=True), required=False)
 @click.option("--model", default="o3-mini")
-@click.option("--effort", default="medium", type=click.Choice(["low", "medium", "high"]))
+@click.option(
+    "--provider",
+    type=click.Choice(_PROVIDER_CHOICES),
+    default=None,
+    help="LLM provider (auto-inferred from model name if omitted)",
+)
+@click.option("--effort", default="medium", type=click.Choice(["low", "medium", "high"]),
+              help="Reasoning effort for OpenAI reasoning models (ignored for other providers)")
 @click.option("--base-url", default=None, help="Custom API base URL (e.g., OpenRouter)")
-@click.option("--api-key", default=None, help="API key (or set OPENAI_API_KEY env)")
+@click.option("--api-key", default=None, help="API key (or set OPENAI_API_KEY / ANTHROPIC_API_KEY env)")
 @click.option("--memory-db", default=None)
 @click.option("--output", "-o", type=click.Path(), default=None)
 @click.option("--no-llm", is_flag=True)
-def triage(input_file, model, effort, base_url, api_key, memory_db, output, no_llm):
+def triage(input_file, model, provider, effort, base_url, api_key, memory_db, output, no_llm):
     if input_file:
         raw = Path(input_file).read_text()
     else:
@@ -38,9 +59,16 @@ def triage(input_file, model, effort, base_url, api_key, memory_db, output, no_l
 
     data = json.loads(raw)
 
-    llm_client = None if no_llm else TriageLLMClient(
-        model=model, reasoning_effort=effort, base_url=base_url, api_key=api_key,
-    )
+    llm_client = None
+    if not no_llm:
+        resolved_provider = Provider(provider) if provider else _infer_provider(model, base_url)
+        llm_client = TriageLLMClient(
+            model=model,
+            provider=resolved_provider,
+            reasoning_effort=effort,
+            base_url=base_url,
+            api_key=api_key,
+        )
     memory = MemoryStore(db_path=memory_db) if memory_db else None
 
     pipeline = TriagePipeline(llm_client=llm_client, memory=memory)
