@@ -1,4 +1,6 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 import { Box, Text, useInput } from "ink";
 import TextInput from "ink-text-input";
 import { SUPPORTED_PROVIDERS } from "../../provider/registry.js";
@@ -38,18 +40,31 @@ export function SetupScreen({
   onComplete: (result: SetupResult) => void;
 }) {
   const saved = projectConfig.hasConfig();
-  const [step, setStep] = useState<SetupStep>("trust");
+  const [step, setStep] = useState<SetupStep>(saved ? "file" : "trust");
   const [providerIndex, setProviderIndex] = useState(() => {
     const idx = SUPPORTED_PROVIDERS.indexOf(projectConfig.provider);
     return idx >= 0 ? idx : 0;
   });
   const [selectedProvider, setSelectedProvider] = useState<ProviderName>(projectConfig.provider);
   const [apiKeyInput, setApiKeyInput] = useState("");
-  const [baseUrlInput, setBaseUrlInput] = useState(projectConfig.provider === "openrouter" ? "https://openrouter.ai/api/v1" : "");
+  const [baseUrlInput, setBaseUrlInput] = useState(projectConfig.baseUrl ?? (projectConfig.provider === "openrouter" ? "https://openrouter.ai/api/v1" : ""));
   const [modelInput, setModelInput] = useState(projectConfig.model);
   const [fileInput, setFileInput] = useState("findings.json");
 
   const providers = projectConfig.detectedProviders();
+
+  // Auto-complete: saved config + findings.json exists → skip setup entirely
+  useEffect(() => {
+    if (saved && existsSync(resolve(cwd, "findings.json"))) {
+      onComplete({
+        provider: projectConfig.provider,
+        model: projectConfig.model,
+        apiKey: projectConfig.resolvedApiKey(),
+        baseUrl: projectConfig.baseUrl,
+        findingsPath: "findings.json",
+      });
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const goBack = () => {
     const prev = prevStep(step);
