@@ -79,7 +79,7 @@ export async function runFollowUp(config: FollowUpConfig): Promise<string> {
   const messages = buildFollowUpMessages(finding, previousVerdict, question, priorExchanges);
 
   const providerOptions = config.reasoningEffort
-    ? resolveProviderOptions(provider, config.reasoningEffort)
+    ? (resolveProviderOptions(provider, config.reasoningEffort) as Parameters<typeof streamText>[0]["providerOptions"])
     : undefined;
 
   let fullText = "";
