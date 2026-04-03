@@ -4,9 +4,16 @@ import TextInput from "ink-text-input";
 import type { AgentEvent } from "../../models/events.js";
 import { VerdictBanner } from "./verdict-banner.js";
 
+/**
+ * Clip text to maxWidth based on visual width.
+ * Tabs are expanded to spaces first since they render as 8 chars
+ * but count as 1 in string.length.
+ */
 function clip(text: string, maxWidth: number): string {
-  if (text.length <= maxWidth) return text;
-  return text.slice(0, maxWidth - 1) + "…";
+  // Expand tabs to spaces (tab stop = 4 in typical terminal code display)
+  const expanded = text.replace(/\t/g, "    ");
+  if (expanded.length <= maxWidth) return expanded;
+  return expanded.slice(0, maxWidth - 1) + "…";
 }
 
 /**
@@ -64,7 +71,15 @@ export function AgentPanel({
     <Box flexDirection="column" padding={1} overflow="hidden">
       {collapsed.map((item, i) => {
         if (item.type === "thinking_block") {
-          return <Text key={i} wrap="wrap">{item.text}</Text>;
+          // Manually wrap thinking text to panel width — Ink wrap="wrap" is unreliable in nested layouts
+          const lines = item.text.split("\n");
+          return (
+            <Box key={i} flexDirection="column">
+              {lines.map((line, li) => (
+                <Text key={li}>{clip(line, w)}</Text>
+              ))}
+            </Box>
+          );
         }
         return <EventLine key={i} event={item as AgentEvent} maxWidth={w} />;
       })}
@@ -127,7 +142,7 @@ function EventLine({ event, maxWidth }: { event: AgentEvent; maxWidth: number })
       );
     }
     case "thinking":
-      return <Text wrap="wrap">{event.delta}</Text>;
+      return <Text>{clip(event.delta, maxWidth)}</Text>;
     case "verdict":
       return <VerdictBanner verdict={event.verdict} />;
     case "error":
