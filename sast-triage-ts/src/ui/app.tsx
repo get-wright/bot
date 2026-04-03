@@ -1,15 +1,19 @@
 import React, { useState, useCallback } from "react";
 import { render, Box, Text, useInput, useApp } from "ink";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import type { Finding } from "../models/finding.js";
 import type { AppConfig } from "../config.js";
 import type { MemoryStore } from "../memory/store.js";
 import type { AgentEvent } from "../models/events.js";
 import type { TriageVerdict } from "../models/verdict.js";
-import { fingerprintFinding } from "../parser/semgrep.js";
+import { parseSemgrepOutput, fingerprintFinding } from "../parser/semgrep.js";
+import { prefilterFinding } from "../parser/prefilter.js";
 import { runAgentLoop } from "../agent/loop.js";
 import { FindingsTable, type FindingEntry, type FindingStatus } from "./components/findings-table.js";
 import { AgentPanel } from "./components/agent-panel.js";
 import { Sidebar } from "./components/sidebar.js";
+import { SetupScreen, type SetupResult } from "./components/setup-screen.js";
 
 interface FindingState {
   entry: FindingEntry;
@@ -18,7 +22,7 @@ interface FindingState {
   verdict?: TriageVerdict;
 }
 
-function App({
+function MainScreen({
   findings,
   totalCount,
   config,
@@ -155,14 +159,90 @@ function App({
   );
 }
 
+function App({
+  initialConfig,
+  memory,
+}: {
+  initialConfig: Partial<AppConfig>;
+  memory: MemoryStore;
+}) {
+  const [screen, setScreen] = useState<"setup" | "main">(
+    initialConfig.provider && initialConfig.model && initialConfig.findingsPath
+      ? "main"
+      : "setup",
+  );
+  const [config, setConfig] = useState<AppConfig | null>(
+    screen === "main"
+      ? (initialConfig as AppConfig)
+      : null,
+  );
+  const [findings, setFindings] = useState<Finding[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
+
+  const handleSetupComplete = useCallback(
+    (result: SetupResult) => {
+      const fullConfig: AppConfig = {
+        findingsPath: result.findingsPath,
+        provider: result.provider,
+        model: result.model,
+        headless: false,
+        allowBash: initialConfig.allowBash ?? false,
+        maxSteps: initialConfig.maxSteps ?? 15,
+        memoryDb: initialConfig.memoryDb ?? ".sast-triage/memory.db",
+      };
+
+      const filePath = resolve(result.findingsPath);
+      let raw: unknown;
+      try {
+        raw = JSON.parse(readFileSync(filePath, "utf-8"));
+      } catch {
+        // File not found — try relative to cwd
+        try {
+          raw = JSON.parse(readFileSync(resolve(process.cwd(), result.findingsPath), "utf-8"));
+        } catch {
+          return; // stay on setup — TODO: show error
+        }
+      }
+
+      const allFindings = parseSemgrepOutput(raw);
+      const memoryLookup = memory.createLookup();
+      const active: Finding[] = [];
+      for (const f of allFindings) {
+        if (prefilterFinding(f, memoryLookup).passed) active.push(f);
+      }
+
+      setConfig(fullConfig);
+      setFindings(active);
+      setTotalCount(allFindings.length);
+      setScreen("main");
+    },
+    [initialConfig, memory],
+  );
+
+  if (screen === "setup") {
+    return <SetupScreen cwd={process.cwd()} onComplete={handleSetupComplete} />;
+  }
+
+  if (!config || findings.length === 0) {
+    return <Text color="yellow">No actionable findings found.</Text>;
+  }
+
+  return (
+    <MainScreen
+      findings={findings}
+      totalCount={totalCount}
+      config={config}
+      memory={memory}
+    />
+  );
+}
+
 export async function runTui(
-  findings: Finding[],
-  totalCount: number,
-  config: AppConfig,
+  initialConfig: Partial<AppConfig>,
   memory: MemoryStore,
 ): Promise<void> {
   const instance = render(
-    <App findings={findings} totalCount={totalCount} config={config} memory={memory} />,
+    <App initialConfig={initialConfig} memory={memory} />,
   );
   await instance.waitUntilExit();
 }

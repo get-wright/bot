@@ -14,6 +14,13 @@ const ENV_KEYS: Record<ProviderName, string> = {
   openrouter: "OPENROUTER_API_KEY",
 };
 
+export function detectProviders(): { name: ProviderName; hasKey: boolean }[] {
+  return SUPPORTED_PROVIDERS.map((name) => ({
+    name,
+    hasKey: !!process.env[ENV_KEYS[name]],
+  }));
+}
+
 export function resolveProvider(provider: string, model: string): LanguageModel {
   if (!SUPPORTED_PROVIDERS.includes(provider as ProviderName)) {
     throw new Error(`Unknown provider: "${provider}". Supported: ${SUPPORTED_PROVIDERS.join(", ")}`);

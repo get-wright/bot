@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { Command } from "commander";
 import { resolveConfig } from "./config.js";
+import type { AppConfig } from "./config.js";
 import { parseSemgrepOutput, fingerprintFinding } from "./parser/semgrep.js";
 import { prefilterFinding } from "./parser/prefilter.js";
 import { MemoryStore } from "./memory/store.js";
@@ -18,15 +19,15 @@ program
   .description("Agentic SAST finding triage via LLM-driven codebase exploration")
   .version("0.1.0")
   .argument("[findings]", "Path to Semgrep JSON output file")
-  .requiredOption("--provider <provider>", "LLM provider (openai, anthropic, google, openrouter)")
-  .requiredOption("--model <model>", "Model ID")
+  .option("--provider <provider>", "LLM provider (openai, anthropic, google, openrouter)")
+  .option("--model <model>", "Model ID")
   .option("--headless", "Output NDJSON to stdout instead of TUI", false)
   .option("--allow-bash", "Enable bash tool for agent", false)
   .option("--max-steps <n>", "Max agent loop steps per finding", "15")
   .option("--memory-db <path>", "SQLite memory DB path", ".sast-triage/memory.db")
   .action(async (findingsPath: string | undefined, opts) => {
     const config = resolveConfig({
-      findingsPath: findingsPath ?? "-",
+      findingsPath,
       provider: opts.provider,
       model: opts.model,
       headless: opts.headless,
@@ -35,55 +36,67 @@ program
       memoryDb: opts.memoryDb,
     });
 
-    let rawInput: string;
-    if (config.findingsPath === "-") {
-      const chunks: Buffer[] = [];
-      for await (const chunk of process.stdin) {
-        chunks.push(chunk as Buffer);
-      }
-      rawInput = Buffer.concat(chunks).toString("utf-8");
-    } else {
-      rawInput = readFileSync(resolve(config.findingsPath), "utf-8");
-    }
-
-    const raw = JSON.parse(rawInput);
-    const findings = parseSemgrepOutput(raw);
-
-    if (findings.length === 0) {
-      console.error("No findings parsed from input.");
-      process.exit(1);
-    }
-
-    const memory = new MemoryStore(resolve(config.memoryDb));
-    const memoryLookup = memory.createLookup();
-
-    const active: Finding[] = [];
-    for (const f of findings) {
-      const result = prefilterFinding(f, memoryLookup);
-      if (result.passed) {
-        active.push(f);
-      } else if (config.headless) {
-        const fp = fingerprintFinding(f);
-        console.log(JSON.stringify({ type: "filtered", fingerprint: fp, rule: f.check_id, reason: result.reason }));
-      }
-    }
-
+    // Headless mode requires all args
     if (config.headless) {
-      await runHeadless(active, config, memory);
-    } else {
-      const { runTui } = await import("./ui/app.js");
-      await runTui(active, findings.length, config, memory);
+      if (!config.provider || !config.model) {
+        console.error("Headless mode requires --provider and --model");
+        process.exit(1);
+      }
+      if (!config.findingsPath) {
+        console.error("Headless mode requires a findings file argument");
+        process.exit(1);
+      }
+      await runHeadless(config as AppConfig);
+      return;
     }
 
+    // TUI mode — setup screen handles missing config
+    const memory = new MemoryStore(resolve(config.memoryDb ?? ".sast-triage/memory.db"));
+
+    // If all args provided, pre-load findings
+    if (config.provider && config.model && config.findingsPath) {
+      const raw = JSON.parse(readInput(config.findingsPath));
+      const allFindings = parseSemgrepOutput(raw);
+      const memoryLookup = memory.createLookup();
+      const active = allFindings.filter((f) => prefilterFinding(f, memoryLookup).passed);
+
+      if (active.length === 0) {
+        console.error("No actionable findings after prefilter.");
+        memory.close();
+        process.exit(1);
+      }
+    }
+
+    const { runTui } = await import("./ui/app.js");
+    await runTui(config, memory);
     memory.close();
   });
 
-async function runHeadless(
-  findings: Finding[],
-  config: ReturnType<typeof resolveConfig>,
-  memory: MemoryStore,
-): Promise<void> {
-  for (const finding of findings) {
+async function runHeadless(config: AppConfig): Promise<void> {
+  const rawInput = readInput(config.findingsPath);
+  const raw = JSON.parse(rawInput);
+  const findings = parseSemgrepOutput(raw);
+
+  if (findings.length === 0) {
+    console.error("No findings parsed from input.");
+    process.exit(1);
+  }
+
+  const memory = new MemoryStore(resolve(config.memoryDb));
+  const memoryLookup = memory.createLookup();
+
+  const active: Finding[] = [];
+  for (const f of findings) {
+    const result = prefilterFinding(f, memoryLookup);
+    if (result.passed) {
+      active.push(f);
+    } else {
+      const fp = fingerprintFinding(f);
+      console.log(JSON.stringify({ type: "filtered", fingerprint: fp, rule: f.check_id, reason: result.reason }));
+    }
+  }
+
+  for (const finding of active) {
     const fp = fingerprintFinding(finding);
     const memoryHints = memory.getHints(finding.check_id, fp);
 
@@ -110,6 +123,15 @@ async function runHeadless(
       reasoning: verdict.reasoning,
     });
   }
+
+  memory.close();
+}
+
+function readInput(path: string): string {
+  if (path === "-") {
+    return readFileSync(0, "utf-8");
+  }
+  return readFileSync(resolve(path), "utf-8");
 }
 
 program.parse();

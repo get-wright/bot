@@ -9,18 +9,18 @@ export interface AppConfig {
 }
 
 export function resolveConfig(opts: {
-  findingsPath: string;
-  provider: string;
-  model: string;
+  findingsPath?: string;
+  provider?: string;
+  model?: string;
   headless?: boolean;
   allowBash?: boolean;
   maxSteps?: number;
   memoryDb?: string;
-}): AppConfig {
+}): Partial<AppConfig> {
   return {
-    findingsPath: opts.findingsPath,
-    provider: opts.provider,
-    model: opts.model,
+    findingsPath: opts.findingsPath || undefined,
+    provider: opts.provider || undefined,
+    model: opts.model || undefined,
     headless: opts.headless ?? false,
     allowBash: opts.allowBash ?? false,
     maxSteps: opts.maxSteps ?? 15,
