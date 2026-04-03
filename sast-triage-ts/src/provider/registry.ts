@@ -21,29 +21,29 @@ export function detectProviders(): { name: ProviderName; hasKey: boolean }[] {
   }));
 }
 
-export function resolveProvider(provider: string, model: string): LanguageModel {
+export function resolveProvider(provider: string, model: string, apiKey?: string): LanguageModel {
   if (!SUPPORTED_PROVIDERS.includes(provider as ProviderName)) {
     throw new Error(`Unknown provider: "${provider}". Supported: ${SUPPORTED_PROVIDERS.join(", ")}`);
   }
 
   const name = provider as ProviderName;
-  const apiKey = process.env[ENV_KEYS[name]];
+  const resolvedKey = apiKey ?? process.env[ENV_KEYS[name]];
 
   switch (name) {
     case "openai": {
-      const openai = createOpenAI({ apiKey });
+      const openai = createOpenAI({ apiKey: resolvedKey });
       return openai(model);
     }
     case "anthropic": {
-      const anthropic = createAnthropic({ apiKey });
+      const anthropic = createAnthropic({ apiKey: resolvedKey });
       return anthropic(model);
     }
     case "google": {
-      const google = createGoogleGenerativeAI({ apiKey });
+      const google = createGoogleGenerativeAI({ apiKey: resolvedKey });
       return google(model);
     }
     case "openrouter": {
-      const openrouter = createOpenRouter({ apiKey });
+      const openrouter = createOpenRouter({ apiKey: resolvedKey });
       return openrouter(model) as unknown as LanguageModel;
     }
   }
