@@ -7,6 +7,7 @@ export interface AppConfig {
   maxSteps: number;
   memoryDb: string;
   apiKey?: string;
+  baseUrl?: string;
 }
 
 export function resolveConfig(opts: {

@@ -18,6 +18,7 @@ export class ProjectConfig {
   provider: ProviderName = "openai";
   model = "gpt-4o";
   apiKey: string | undefined;
+  baseUrl: string | undefined;
   memoryDbPath: string;
 
   constructor(workspace: string) {
@@ -47,6 +48,9 @@ export class ProjectConfig {
       if (typeof provider.model === "string") {
         this.model = provider.model;
       }
+      if (typeof provider.base_url === "string") {
+        this.baseUrl = provider.base_url;
+      }
 
       const apiKeys = provider.api_keys as Record<string, string> | undefined;
       if (apiKeys) {
@@ -68,6 +72,7 @@ export class ProjectConfig {
         name: this.provider,
         model: this.model,
         ...(this.apiKey ? { api_keys: { [this.provider]: this.apiKey } } : {}),
+        ...(this.baseUrl ? { base_url: this.baseUrl } : {}),
       },
       memory: {
         db_path: ".sast-triage/memory.db",

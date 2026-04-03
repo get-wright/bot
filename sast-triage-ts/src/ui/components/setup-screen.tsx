@@ -16,11 +16,12 @@ export interface SetupResult {
   provider: string;
   model: string;
   apiKey: string | undefined;
+  baseUrl: string | undefined;
   findingsPath: string;
 }
 
-type SetupStep = "trust" | "provider" | "apikey" | "model" | "file";
-const STEP_ORDER: SetupStep[] = ["trust", "provider", "apikey", "model", "file"];
+type SetupStep = "trust" | "provider" | "apikey" | "baseurl" | "model" | "file";
+const STEP_ORDER: SetupStep[] = ["trust", "provider", "apikey", "baseurl", "model", "file"];
 
 function prevStep(current: SetupStep): SetupStep | null {
   const idx = STEP_ORDER.indexOf(current);
@@ -44,6 +45,7 @@ export function SetupScreen({
   });
   const [selectedProvider, setSelectedProvider] = useState<ProviderName>(projectConfig.provider);
   const [apiKeyInput, setApiKeyInput] = useState("");
+  const [baseUrlInput, setBaseUrlInput] = useState(projectConfig.provider === "openrouter" ? "https://openrouter.ai/api/v1" : "");
   const [modelInput, setModelInput] = useState(projectConfig.model);
   const [fileInput, setFileInput] = useState("findings.json");
 
@@ -75,6 +77,7 @@ export function SetupScreen({
         setSelectedProvider(chosen.name);
         setModelInput(DEFAULT_MODELS[chosen.name]);
         setApiKeyInput("");
+        setBaseUrlInput(chosen.name === "openrouter" ? "https://openrouter.ai/api/v1" : "");
         setStep("apikey");
       }
     }
@@ -144,7 +147,7 @@ export function SetupScreen({
             value={apiKeyInput}
             onChange={setApiKeyInput}
             mask="*"
-            onSubmit={() => setStep("model")}
+            onSubmit={() => setStep("baseurl")}
           />
         </Box>
         <Text> </Text>
@@ -153,6 +156,27 @@ export function SetupScreen({
             ? "Enter to skip (use env var) · Or paste key to override · Esc back"
             : "Paste your API key · Enter to confirm · Esc back"}
         </Text>
+      </Box>
+    );
+  }
+
+  // --- Base URL ---
+  if (step === "baseurl") {
+    return (
+      <Box flexDirection="column" paddingX={2} paddingY={1}>
+        <Text bold>Base URL</Text>
+        <Text dimColor>Provider: {selectedProvider}</Text>
+        <Text> </Text>
+        <Box>
+          <Text>URL: </Text>
+          <TextInput
+            value={baseUrlInput}
+            onChange={setBaseUrlInput}
+            onSubmit={() => setStep("model")}
+          />
+        </Box>
+        <Text> </Text>
+        <Text dimColor>Enter to skip (use default) · Or paste custom URL · Esc back</Text>
       </Box>
     );
   }
@@ -196,12 +220,14 @@ export function SetupScreen({
             projectConfig.provider = selectedProvider;
             projectConfig.model = modelInput;
             projectConfig.apiKey = apiKeyInput || undefined;
+            projectConfig.baseUrl = baseUrlInput || undefined;
             projectConfig.save();
 
             onComplete({
               provider: selectedProvider,
               model: modelInput,
               apiKey: apiKeyInput || projectConfig.resolvedApiKey(),
+              baseUrl: baseUrlInput || undefined,
               findingsPath: value || "findings.json",
             });
           }}

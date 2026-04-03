@@ -18,12 +18,13 @@ export interface AgentLoopConfig {
   onEvent: (event: AgentEvent) => void;
   memoryHints: string[];
   apiKey?: string;
+  baseUrl?: string;
 }
 
 export async function runAgentLoop(config: AgentLoopConfig): Promise<TriageVerdict> {
   const { finding, projectRoot, provider, model: modelId, maxSteps, allowBash, onEvent, memoryHints } = config;
 
-  const languageModel = resolveProvider(provider, modelId, config.apiKey);
+  const languageModel = resolveProvider(provider, modelId, config.apiKey, config.baseUrl);
   const tools = createTools({ projectRoot, allowBash });
   const doomLoop = new DoomLoopDetector();
   let finalVerdict: TriageVerdict | null = null;

@@ -50,6 +50,7 @@ program
       const projectConfig = new ProjectConfig(process.cwd());
       const fullConfig = config as AppConfig;
       fullConfig.apiKey = projectConfig.resolvedApiKey();
+      fullConfig.baseUrl = projectConfig.baseUrl;
       await runHeadless(fullConfig);
       return;
     }
@@ -119,6 +120,7 @@ async function runHeadless(config: AppConfig): Promise<void> {
       onEvent,
       memoryHints,
       apiKey: config.apiKey,
+      baseUrl: config.baseUrl,
     });
 
     memory.store({

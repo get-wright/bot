@@ -1,7 +1,6 @@
 import { createOpenAI } from "@ai-sdk/openai";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
-import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import type { LanguageModel } from "ai";
 
 export const SUPPORTED_PROVIDERS = ["openai", "anthropic", "google", "openrouter"] as const;
@@ -21,7 +20,7 @@ export function detectProviders(): { name: ProviderName; hasKey: boolean }[] {
   }));
 }
 
-export function resolveProvider(provider: string, model: string, apiKey?: string): LanguageModel {
+export function resolveProvider(provider: string, model: string, apiKey?: string, baseUrl?: string): LanguageModel {
   if (!SUPPORTED_PROVIDERS.includes(provider as ProviderName)) {
     throw new Error(`Unknown provider: "${provider}". Supported: ${SUPPORTED_PROVIDERS.join(", ")}`);
   }
@@ -31,20 +30,23 @@ export function resolveProvider(provider: string, model: string, apiKey?: string
 
   switch (name) {
     case "openai": {
-      const openai = createOpenAI({ apiKey: resolvedKey });
+      const openai = createOpenAI({ apiKey: resolvedKey, ...(baseUrl ? { baseURL: baseUrl } : {}) });
       return openai(model);
     }
     case "anthropic": {
-      const anthropic = createAnthropic({ apiKey: resolvedKey });
+      const anthropic = createAnthropic({ apiKey: resolvedKey, ...(baseUrl ? { baseURL: baseUrl } : {}) });
       return anthropic(model);
     }
     case "google": {
-      const google = createGoogleGenerativeAI({ apiKey: resolvedKey });
+      const google = createGoogleGenerativeAI({ apiKey: resolvedKey, ...(baseUrl ? { baseURL: baseUrl } : {}) });
       return google(model);
     }
     case "openrouter": {
-      const openrouter = createOpenRouter({ apiKey: resolvedKey });
-      return openrouter(model) as unknown as LanguageModel;
+      const openrouter = createOpenAI({
+        apiKey: resolvedKey,
+        baseURL: baseUrl ?? "https://openrouter.ai/api/v1",
+      });
+      return openrouter(model);
     }
   }
 }
