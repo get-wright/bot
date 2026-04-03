@@ -104,13 +104,28 @@ class AuditScreen(Screen):
 
     def _update_queue_sidebar(self) -> None:
         sidebar = self.query_one(SessionSidebar)
+        # Show completed count, then current + remaining only
+        completed = sum(1 for _, _, s in self._queue_status if s and s.startswith("✓"))
+        total = len(self._queue_status)
         items = []
         for i, (idx, label, status) in enumerate(self._queue_status):
+            if status and status.startswith("✓"):
+                continue  # hide completed items
             if i == self._current_index and not status:
                 items.append((idx, label, "▸"))
             else:
                 items.append((idx, label, status))
-        sidebar.set_queue(items)
+        # Prepend summary if any completed
+        if completed:
+            sidebar.update_section(
+                "QUEUE",
+                f"  {completed}/{total} done\n" + "\n".join(
+                    f" {s} {idx}.{label[:18]}" if s else f"   {idx}.{label[:18]}"
+                    for idx, label, s in items
+                ),
+            )
+        else:
+            sidebar.set_queue(items)
 
     def _run_current_audit(self) -> None:
         if self._current_index >= len(self._findings):
