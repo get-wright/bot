@@ -40,12 +40,13 @@ function MainScreen({
   config: AppConfig;
   memory: MemoryStore;
   onSwitchProvider?: () => void;
-  initialView?: "active" | "filtered";
+  initialView?: "active" | "filtered" | "dismissed";
 }) {
   const { exit } = useApp();
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const [viewMode, setViewMode] = useState<"active" | "filtered">(initialView);
+  const [viewMode, setViewMode] = useState<"active" | "filtered" | "dismissed">(initialView);
   const [filteredFindings, setFilteredFindings] = useState(initialFilteredFindings);
+  const [dismissedFindings, setDismissedFindings] = useState<{ finding: Finding; reason: string }[]>([]);
   const [findingStates, setFindingStates] = useState<FindingState[]>(() =>
     findings.map((f) => ({
       entry: {
@@ -273,16 +274,35 @@ function MainScreen({
     setIsTriaging(false);
   }, [isTriaging, viewMode, filteredFindings, selectedIndex, findingStates.length, triageIndex]);
 
-  // Dismiss a filtered finding (remove from list)
+  // Dismiss a filtered finding (move to dismissed list)
   const dismissFiltered = useCallback(() => {
     if (viewMode !== "filtered") return;
+    const item = filteredFindings[selectedIndex];
+    if (!item) return;
+    setDismissedFindings((prev) => [...prev, item]);
     setFilteredFindings((prev) => prev.filter((_, i) => i !== selectedIndex));
     if (selectedIndex >= filteredFindings.length - 1) {
       setSelectedIndex(Math.max(0, selectedIndex - 1));
     }
-  }, [viewMode, selectedIndex, filteredFindings.length]);
+  }, [viewMode, selectedIndex, filteredFindings]);
 
-  const listLength = viewMode === "active" ? findingStates.length : filteredFindings.length;
+  // Restore a dismissed finding back to filtered
+  const restoreDismissed = useCallback(() => {
+    if (viewMode !== "dismissed") return;
+    const item = dismissedFindings[selectedIndex];
+    if (!item) return;
+    setFilteredFindings((prev) => [...prev, item]);
+    setDismissedFindings((prev) => prev.filter((_, i) => i !== selectedIndex));
+    if (selectedIndex >= dismissedFindings.length - 1) {
+      setSelectedIndex(Math.max(0, selectedIndex - 1));
+    }
+  }, [viewMode, selectedIndex, dismissedFindings]);
+
+  const listLength = viewMode === "active"
+    ? findingStates.length
+    : viewMode === "filtered"
+      ? filteredFindings.length
+      : dismissedFindings.length;
 
   useInput((input, key) => {
     if (showFollowUp) return;
@@ -301,7 +321,9 @@ function MainScreen({
     }
 
     if (key.tab) {
-      setViewMode(viewMode === "active" ? "filtered" : "active");
+      const views: Array<"active" | "filtered" | "dismissed"> = ["active", "filtered", "dismissed"];
+      const next = views[(views.indexOf(viewMode) + 1) % views.length]!;
+      setViewMode(next);
       setSelectedIndex(0);
       return;
     }
@@ -325,15 +347,17 @@ function MainScreen({
       return;
     }
 
-    // Enter: start triage (active) or promote filtered finding
+    // Enter: start triage (active), promote filtered, or restore dismissed
     if (key.return && !isTriaging) {
       if (viewMode === "active") {
         const indices = selectedIndices.size > 0
           ? [...selectedIndices].filter((i) => !findingStates[i]!.verdict).sort((a, b) => a - b)
           : [selectedIndex];
         startBatchQueue(indices);
-      } else {
+      } else if (viewMode === "filtered") {
         promoteFiltered();
+      } else if (viewMode === "dismissed") {
+        restoreDismissed();
       }
       return;
     }
@@ -387,8 +411,12 @@ function MainScreen({
           />
         ) : (
           <Box flexDirection="column" padding={1}>
-            <Text bold>{`Filtered (${filteredFindings.length})`}</Text>
-            {filteredFindings.map((item, i) => {
+            <Text bold>
+              {viewMode === "filtered"
+                ? `Filtered (${filteredFindings.length})`
+                : `Dismissed (${dismissedFindings.length})`}
+            </Text>
+            {(viewMode === "filtered" ? filteredFindings : dismissedFindings).map((item, i) => {
               const isSelected = i === selectedIndex;
               return (
                 <Box key={i} flexDirection="column">
@@ -404,22 +432,29 @@ function MainScreen({
         )}
       </Box>
       <Box width={panelWidth} flexDirection="column" borderStyle="single" overflow="hidden">
-        {viewMode === "filtered" ? (
-          filteredFindings[selectedIndex] ? (
-            <Box flexDirection="column" padding={1}>
-              <Text bold>Rule: {filteredFindings[selectedIndex].finding.check_id}</Text>
-              <Text>File: {filteredFindings[selectedIndex].finding.path}:{filteredFindings[selectedIndex].finding.start.line}</Text>
-              <Text>Severity: {filteredFindings[selectedIndex].finding.extra.severity}</Text>
-              <Text> </Text>
-              <Text color="yellow">Filtered: {filteredFindings[selectedIndex].reason}</Text>
-              <Text> </Text>
-              <Text wrap="wrap">{filteredFindings[selectedIndex].finding.extra.message}</Text>
-              <Text> </Text>
-              <Text dimColor>Enter: re-audit · d: dismiss</Text>
-            </Box>
-          ) : (
-            <Text>No filtered findings.</Text>
-          )
+        {viewMode === "filtered" || viewMode === "dismissed" ? (
+          (() => {
+            const items = viewMode === "filtered" ? filteredFindings : dismissedFindings;
+            const item = items[selectedIndex];
+            if (!item) return <Text>No {viewMode} findings.</Text>;
+            return (
+              <Box flexDirection="column" padding={1}>
+                <Text bold>Rule: {item.finding.check_id}</Text>
+                <Text>File: {item.finding.path}:{item.finding.start.line}</Text>
+                <Text>Severity: {item.finding.extra.severity}</Text>
+                <Text> </Text>
+                <Text color="yellow">{viewMode === "filtered" ? "Filtered" : "Dismissed"}: {item.reason}</Text>
+                <Text> </Text>
+                <Text wrap="wrap">{item.finding.extra.message}</Text>
+                <Text> </Text>
+                <Text dimColor>
+                  {viewMode === "filtered"
+                    ? "Enter: re-audit · d: dismiss"
+                    : "Enter: restore to filtered"}
+                </Text>
+              </Box>
+            );
+          })()
         ) : selected ? (
           <AgentPanel
             events={selected.events}
