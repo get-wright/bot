@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from textual.app import App
@@ -18,6 +19,10 @@ class SastTriageApp(App):
         super().__init__()
         self._workspace = Path(workspace or Path.cwd()).resolve()
         self.project_config = None
+        # Suppress noisy loggers that bleed into the TUI
+        logging.getLogger("httpx").setLevel(logging.WARNING)
+        logging.getLogger("httpcore").setLevel(logging.WARNING)
+        logging.getLogger("openai").setLevel(logging.WARNING)
 
     def on_mount(self) -> None:
         self.push_screen(TrustScreen(workspace=self._workspace))

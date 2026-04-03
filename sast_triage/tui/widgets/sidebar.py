@@ -84,8 +84,10 @@ class SessionSidebar(VerticalScroll):
         """items: list of (index, label, status) e.g. (1, 'rule-xss', '✓ FP 81%')"""
         lines = []
         for idx, label, status in items:
+            # Truncate label to fit sidebar (max ~18 chars)
+            short = label[:18] + "…" if len(label) > 18 else label
             if status:
-                lines.append(f"  {status} {idx}. {label}")
+                lines.append(f" {status} {idx}.{short}")
             else:
-                lines.append(f"    {idx}. {label}")
+                lines.append(f"   {idx}.{short}")
         self.update_section("QUEUE", "\n".join(lines))
