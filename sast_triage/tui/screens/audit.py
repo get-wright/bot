@@ -152,7 +152,7 @@ class AuditScreen(Screen):
             if worker.is_cancelled:
                 return
 
-            self.call_from_thread(
+            self.app.call_from_thread(
                 thinking_log.log_step,
                 step_result.icon,
                 step_result.message,
@@ -161,7 +161,7 @@ class AuditScreen(Screen):
 
             if step_result.needs_permission:
                 for blocked_path in step_result.blocked_paths:
-                    self.call_from_thread(
+                    self.app.call_from_thread(
                         self.notify,
                         f"Skipped {blocked_path} (outside workspace). Allow via config.",
                         severity="warning",
@@ -172,7 +172,7 @@ class AuditScreen(Screen):
                 self._current_context = step_result.context
                 trace = step_result.context.trace_context
                 if trace:
-                    self.call_from_thread(
+                    self.app.call_from_thread(
                         self.query_one(SessionSidebar).set_trace_info,
                         trace.source_code or "",
                         "",
@@ -184,12 +184,12 @@ class AuditScreen(Screen):
             if step_result.verdict:
                 self._current_verdict = step_result.verdict
                 verdict_panel = self.query_one("#verdict-panel", VerdictPanel)
-                self.call_from_thread(verdict_panel.show_verdict, step_result.verdict)
-                self.call_from_thread(
+                self.app.call_from_thread(verdict_panel.show_verdict, step_result.verdict)
+                self.app.call_from_thread(
                     self._update_queue_complete,
                     step_result.verdict,
                 )
-                self.call_from_thread(
+                self.app.call_from_thread(
                     self.query_one(TabbedContent).__setattr__,
                     "active",
                     "verdict",
@@ -234,7 +234,7 @@ class AuditScreen(Screen):
         from sast_triage.llm.prompts import SYSTEM_PROMPT, build_user_prompt
 
         thinking_log = self.query_one("#thinking-log", ThinkingLog)
-        self.call_from_thread(
+        self.app.call_from_thread(
             thinking_log.log_step, "?", f"Follow-up: {question}"
         )
 
@@ -257,11 +257,11 @@ class AuditScreen(Screen):
                 ],
             )
             response = completion.choices[0].message.content or ""
-            self.call_from_thread(
+            self.app.call_from_thread(
                 thinking_log.log_step, "→", "Follow-up answer", response
             )
         except Exception as e:
-            self.call_from_thread(
+            self.app.call_from_thread(
                 self.notify, f"Follow-up failed: {e}", severity="error"
             )
 
