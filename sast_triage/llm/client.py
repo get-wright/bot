@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
+from enum import Enum
 
 import openai
 from openai import OpenAI
@@ -13,10 +15,31 @@ from sast_triage.models import AssembledContext, TriageVerdict
 logger = logging.getLogger(__name__)
 
 
+class Provider(str, Enum):
+    """LLM provider selection — determines API behavior, role, and parameters."""
+
+    OPENAI = "openai"
+    OPENAI_REASONING = "openai-reasoning"
+    ANTHROPIC = "anthropic"
+    OPENAI_COMPATIBLE = "openai-compatible"
+
+
+_PROVIDER_BASE_URLS: dict[Provider, str] = {
+}
+
+_PROVIDER_API_KEY_ENVS: dict[Provider, tuple[str, ...]] = {
+    Provider.OPENAI: ("OPENAI_API_KEY",),
+    Provider.OPENAI_REASONING: ("OPENAI_API_KEY",),
+    Provider.ANTHROPIC: ("ANTHROPIC_API_KEY",),
+    Provider.OPENAI_COMPATIBLE: ("OPENAI_API_KEY",),
+}
+
+
 class TriageLLMClient:
     def __init__(
         self,
         model: str = "o3-mini",
+        provider: str | Provider = Provider.OPENAI_REASONING,
         reasoning_effort: str = "medium",
         api_key: str | None = None,
         base_url: str | None = None,
@@ -24,18 +47,36 @@ class TriageLLMClient:
         timeout: float = 60.0,
     ):
         self._model = model
+        self._provider = Provider(provider)
         self._reasoning_effort = reasoning_effort
+
+        resolved_api_key = api_key
+        if resolved_api_key is None:
+            for env_var in _PROVIDER_API_KEY_ENVS.get(self._provider, ()):
+                resolved_api_key = os.environ.get(env_var)
+                if resolved_api_key:
+                    break
+
+        resolved_base_url = base_url
+        if resolved_base_url is None:
+            resolved_base_url = _PROVIDER_BASE_URLS.get(self._provider)
+
         client_kwargs: dict = {
-            "api_key": api_key,
             "max_retries": max_retries,
             "timeout": timeout,
         }
-        if base_url:
-            client_kwargs["base_url"] = base_url
+        if resolved_api_key:
+            client_kwargs["api_key"] = resolved_api_key
+        if resolved_base_url:
+            client_kwargs["base_url"] = resolved_base_url
         self._client = OpenAI(**client_kwargs)
 
+    @property
+    def provider(self) -> Provider:
+        return self._provider
+
     def triage(self, context: AssembledContext) -> TriageVerdict:
-        role = "developer" if self._model.startswith("o") else "system"
+        role = "developer" if self._provider == Provider.OPENAI_REASONING else "system"
         user_prompt = build_user_prompt(context)
 
         json_schema_hint = (
@@ -53,7 +94,7 @@ class TriageLLMClient:
             ],
         }
 
-        if self._model.startswith("o"):
+        if self._provider == Provider.OPENAI_REASONING:
             kwargs["reasoning_effort"] = self._reasoning_effort
 
         try:
@@ -69,6 +110,9 @@ class TriageLLMClient:
             return self._fallback(f"Unexpected error: {e}")
 
     def _try_structured(self, kwargs: dict) -> TriageVerdict | None:
+        if self._provider == Provider.OPENAI_COMPATIBLE:
+            return None
+
         try:
             kwargs["response_format"] = TriageVerdict
             completion = self._client.chat.completions.parse(**kwargs)
