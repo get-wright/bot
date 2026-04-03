@@ -71,19 +71,25 @@ class MainScreen(Screen):
         # Init memory
         from sast_triage.memory.store import MemoryStore
         self._memory = MemoryStore(db_path=self._config.memory_db_path)
-        records = self._memory.list_all()
-        sidebar.set_memory_info(
-            self._config.memory_db_path.rsplit("/", 1)[-1],
-            len(records),
-        )
-
-        # Load saved results into Saved tab
-        self._load_saved_results(records)
+        self._refresh_saved_results()
 
         # Auto-import findings.json if present
         default_path = self._workspace / "findings.json"
         if default_path.exists():
             self._import_findings(default_path)
+
+    def on_screen_resume(self) -> None:
+        """Called when this screen becomes active again (e.g., AuditScreen popped)."""
+        self._refresh_saved_results()
+
+    def _refresh_saved_results(self) -> None:
+        records = self._memory.list_all()
+        sidebar = self.query_one(SessionSidebar)
+        sidebar.set_memory_info(
+            self._config.memory_db_path.rsplit("/", 1)[-1],
+            len(records),
+        )
+        self._load_saved_results(records)
 
     def _import_findings(self, path: Path) -> None:
         try:
