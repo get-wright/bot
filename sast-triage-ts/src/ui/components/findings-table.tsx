@@ -31,27 +31,32 @@ export function FindingsTable({
   findings,
   selectedIndex,
   triaged,
+  selectedIndices,
 }: {
   findings: FindingEntry[];
   selectedIndex: number;
   triaged: number;
+  selectedIndices?: Set<number>;
 }) {
+  const sel = selectedIndices ?? new Set<number>();
   return (
     <Box flexDirection="column" width="100%">
       <Box marginBottom={1}>
         <Text bold>
           Findings {triaged}/{findings.length}
+          {sel.size > 0 ? ` (${sel.size} selected)` : ""}
         </Text>
       </Box>
       {findings.map((f, i) => {
-        const selected = i === selectedIndex;
+        const highlighted = i === selectedIndex;
         const color = STATUS_COLORS[f.status];
         const icon = STATUS_ICONS[f.status];
         const ruleShort = f.ruleId.split(".").pop() ?? f.ruleId;
+        const mark = sel.has(i) ? "●" : " ";
         return (
           <Box key={f.fingerprint}>
             <Text color={color}>
-              {selected ? ">" : " "} {icon} {ruleShort.slice(0, 20).padEnd(20)} {f.fileLine}
+              {highlighted ? ">" : " "}{mark} {icon} {ruleShort.slice(0, 20).padEnd(20)} {f.fileLine}
             </Text>
           </Box>
         );
