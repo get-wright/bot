@@ -146,5 +146,6 @@ class TriageRecord(BaseModel):
     confidence: float
     reasoning: str
     feedback: str | None = None
+    starred: bool = False
     created_at: str
     updated_at: str

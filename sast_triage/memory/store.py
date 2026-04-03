@@ -29,11 +29,19 @@ class MemoryStore:
                 confidence REAL NOT NULL,
                 reasoning TEXT NOT NULL,
                 feedback TEXT,
+                starred INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             )
         """)
         self._conn.commit()
+        self._migrate_starred()
+
+    def _migrate_starred(self):
+        columns = {row[1] for row in self._conn.execute("PRAGMA table_info(triage_records)").fetchall()}
+        if "starred" not in columns:
+            self._conn.execute("ALTER TABLE triage_records ADD COLUMN starred INTEGER NOT NULL DEFAULT 0")
+            self._conn.commit()
 
     def lookup(self, fingerprint: str) -> TriageRecord | None:
         from sast_triage.models import TriageRecord
@@ -42,7 +50,9 @@ class MemoryStore:
         ).fetchone()
         if not row:
             return None
-        return TriageRecord(**dict(row))
+        data = dict(row)
+        data["starred"] = bool(data.get("starred", 0))
+        return TriageRecord(**data)
 
     def lookup_by_rule(self, check_id: str, limit: int = 10) -> list[TriageRecord]:
         from sast_triage.models import TriageRecord
@@ -50,13 +60,18 @@ class MemoryStore:
             "SELECT * FROM triage_records WHERE check_id = ? ORDER BY updated_at DESC LIMIT ?",
             (check_id, limit),
         ).fetchall()
-        return [TriageRecord(**dict(r)) for r in rows]
+        records = []
+        for r in rows:
+            data = dict(r)
+            data["starred"] = bool(data.get("starred", 0))
+            records.append(TriageRecord(**data))
+        return records
 
     def store(self, record: TriageRecord) -> None:
         now = datetime.now(timezone.utc).isoformat()
         self._conn.execute(
-            """INSERT INTO triage_records (fingerprint, check_id, path, verdict, confidence, reasoning, feedback, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """INSERT INTO triage_records (fingerprint, check_id, path, verdict, confidence, reasoning, feedback, starred, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(fingerprint) DO UPDATE SET
                 verdict = excluded.verdict,
                 confidence = excluded.confidence,
@@ -64,9 +79,35 @@ class MemoryStore:
                 updated_at = excluded.updated_at""",
             (record.fingerprint, record.check_id, record.path, record.verdict,
              record.confidence, record.reasoning, record.feedback,
-             record.created_at or now, now),
+             int(record.starred), record.created_at or now, now),
         )
         self._conn.commit()
+
+    def set_starred(self, fingerprint: str, starred: bool) -> bool:
+        now = datetime.now(timezone.utc).isoformat()
+        cursor = self._conn.execute(
+            "UPDATE triage_records SET starred = ?, updated_at = ? WHERE fingerprint = ?",
+            (int(starred), now, fingerprint),
+        )
+        self._conn.commit()
+        return cursor.rowcount > 0
+
+    def list_all(self, starred_only: bool = False) -> list[TriageRecord]:
+        from sast_triage.models import TriageRecord
+        if starred_only:
+            rows = self._conn.execute(
+                "SELECT * FROM triage_records WHERE starred = 1 ORDER BY updated_at DESC"
+            ).fetchall()
+        else:
+            rows = self._conn.execute(
+                "SELECT * FROM triage_records ORDER BY updated_at DESC"
+            ).fetchall()
+        records = []
+        for r in rows:
+            data = dict(r)
+            data["starred"] = bool(data.get("starred", 0))
+            records.append(TriageRecord(**data))
+        return records
 
     def add_feedback(self, fingerprint: str, feedback: str) -> bool:
         now = datetime.now(timezone.utc).isoformat()

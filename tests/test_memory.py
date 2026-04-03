@@ -83,3 +83,45 @@ class TestMemoryStore:
         with MemoryStore(db_path=db_path) as m:
             m.store(_make_record())
             assert m.lookup("fp1") is not None
+
+
+class TestMemoryStoreStarred:
+    def test_starred_defaults_false(self, memory):
+        memory.store(_make_record("fp1"))
+        result = memory.lookup("fp1")
+        assert result.starred is False
+
+    def test_set_starred_true(self, memory):
+        memory.store(_make_record("fp1"))
+        assert memory.set_starred("fp1", True) is True
+        result = memory.lookup("fp1")
+        assert result.starred is True
+
+    def test_set_starred_false(self, memory):
+        memory.store(_make_record("fp1"))
+        memory.set_starred("fp1", True)
+        assert memory.set_starred("fp1", False) is True
+        result = memory.lookup("fp1")
+        assert result.starred is False
+
+    def test_set_starred_missing(self, memory):
+        assert memory.set_starred("nonexistent", True) is False
+
+    def test_list_all_returns_all(self, memory):
+        memory.store(_make_record("fp1"))
+        memory.store(_make_record("fp2"))
+        memory.store(_make_record("fp3"))
+        results = memory.list_all()
+        assert len(results) == 3
+
+    def test_list_all_starred_only(self, memory):
+        memory.store(_make_record("fp1"))
+        memory.store(_make_record("fp2"))
+        memory.store(_make_record("fp3"))
+        memory.set_starred("fp1", True)
+        memory.set_starred("fp3", True)
+        results = memory.list_all(starred_only=True)
+        assert len(results) == 2
+        assert all(r.starred is True for r in results)
+        fps = {r.fingerprint for r in results}
+        assert fps == {"fp1", "fp3"}
