@@ -17,6 +17,7 @@ import { AgentPanel } from "./components/agent-panel.js";
 import { Sidebar, type QueueItem, type UsageStats } from "./components/sidebar.js";
 import { SetupScreen, type SetupResult } from "./components/setup-screen.js";
 import { ProjectConfig } from "../config/project-config.js";
+import { FindingDetail } from "./components/finding-detail.js";
 
 interface FindingState {
   entry: FindingEntry;
@@ -438,21 +439,15 @@ function MainScreen({
             const item = items[selectedIndex];
             if (!item) return <Text>No {viewMode} findings.</Text>;
             return (
-              <Box flexDirection="column" padding={1}>
-                <Text bold>Rule: {item.finding.check_id}</Text>
-                <Text>File: {item.finding.path}:{item.finding.start.line}</Text>
-                <Text>Severity: {item.finding.extra.severity}</Text>
-                <Text> </Text>
-                <Text color="yellow">{viewMode === "filtered" ? "Filtered" : "Dismissed"}: {item.reason}</Text>
-                <Text> </Text>
-                <Text wrap="wrap">{item.finding.extra.message}</Text>
-                <Text> </Text>
-                <Text dimColor>
-                  {viewMode === "filtered"
-                    ? "Enter: re-audit · d: dismiss"
-                    : "Enter: restore to filtered"}
-                </Text>
-              </Box>
+              <FindingDetail
+                finding={item.finding}
+                reason={item.reason}
+                label={viewMode === "filtered" ? "Filtered" : "Dismissed"}
+                hint={viewMode === "filtered"
+                  ? "Enter: re-audit · d: dismiss"
+                  : "Enter: restore to filtered"}
+                width={panelWidth - 2}
+              />
             );
           })()
         ) : selected ? (
