@@ -20,10 +20,11 @@ export interface SetupResult {
   apiKey: string | undefined;
   baseUrl: string | undefined;
   findingsPath: string;
+  reasoningEffort: string | undefined;
 }
 
-type SetupStep = "trust" | "provider" | "apikey" | "baseurl" | "model" | "file";
-const STEP_ORDER: SetupStep[] = ["trust", "provider", "apikey", "baseurl", "model", "file"];
+type SetupStep = "trust" | "provider" | "apikey" | "baseurl" | "model" | "effort" | "file";
+const STEP_ORDER: SetupStep[] = ["trust", "provider", "apikey", "baseurl", "model", "effort", "file"];
 
 function prevStep(current: SetupStep): SetupStep | null {
   const idx = STEP_ORDER.indexOf(current);
@@ -34,13 +35,17 @@ export function SetupScreen({
   cwd,
   projectConfig,
   onComplete,
+  startStep: startStepProp,
 }: {
   cwd: string;
   projectConfig: ProjectConfig;
   onComplete: (result: SetupResult) => void;
+  startStep?: SetupStep;
 }) {
   const saved = projectConfig.hasConfig();
-  const [step, setStep] = useState<SetupStep>(saved ? "file" : "trust");
+  const [step, setStep] = useState<SetupStep>(
+    startStepProp ?? (saved ? "file" : "trust"),
+  );
   const [providerIndex, setProviderIndex] = useState(() => {
     const idx = SUPPORTED_PROVIDERS.indexOf(projectConfig.provider);
     return idx >= 0 ? idx : 0;
@@ -50,6 +55,11 @@ export function SetupScreen({
   const [baseUrlInput, setBaseUrlInput] = useState(projectConfig.baseUrl ?? (projectConfig.provider === "openrouter" ? "https://openrouter.ai/api/v1" : ""));
   const [modelInput, setModelInput] = useState(projectConfig.model);
   const [fileInput, setFileInput] = useState("findings.json");
+  const [effortIndex, setEffortIndex] = useState(() => {
+    const efforts = ["low", "medium", "high"];
+    const idx = efforts.indexOf(projectConfig.reasoningEffort ?? "");
+    return idx >= 0 ? idx : -1; // -1 = none/skip
+  });
 
   const providers = projectConfig.detectedProviders();
 
@@ -62,6 +72,7 @@ export function SetupScreen({
         apiKey: projectConfig.resolvedApiKey(),
         baseUrl: projectConfig.baseUrl,
         findingsPath: "findings.json",
+        reasoningEffort: projectConfig.reasoningEffort,
       });
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -94,6 +105,18 @@ export function SetupScreen({
         setApiKeyInput("");
         setBaseUrlInput(chosen.name === "openrouter" ? "https://openrouter.ai/api/v1" : "");
         setStep("apikey");
+      }
+    }
+
+    if (step === "effort") {
+      if (key.upArrow) {
+        setEffortIndex((prev) => (prev <= -1 ? 2 : prev - 1));
+      }
+      if (key.downArrow) {
+        setEffortIndex((prev) => (prev >= 2 ? -1 : prev + 1));
+      }
+      if (key.return) {
+        setStep("file");
       }
     }
   });
@@ -208,11 +231,40 @@ export function SetupScreen({
           <TextInput
             value={modelInput}
             onChange={setModelInput}
-            onSubmit={() => setStep("file")}
+            onSubmit={() => setStep("effort")}
           />
         </Box>
         <Text> </Text>
         <Text dimColor>Enter to confirm · Esc back</Text>
+      </Box>
+    );
+  }
+
+  // --- Reasoning Effort ---
+  if (step === "effort") {
+    const efforts = ["low", "medium", "high"];
+    return (
+      <Box flexDirection="column" paddingX={2} paddingY={1}>
+        <Text bold>Reasoning Effort</Text>
+        <Text dimColor>Controls thinking budget for reasoning models. Skip if not using reasoning models.</Text>
+        <Text> </Text>
+        {efforts.map((e, i) => {
+          const sel = i === effortIndex;
+          return (
+            <Text key={e}>
+              <Text color={sel ? "cyan" : undefined} bold={sel}>
+                {" "}{sel ? ">" : " "} {e}
+              </Text>
+            </Text>
+          );
+        })}
+        <Text>
+          <Text color={effortIndex === -1 ? "cyan" : undefined} bold={effortIndex === -1}>
+            {" "}{effortIndex === -1 ? ">" : " "} skip (use provider default)
+          </Text>
+        </Text>
+        <Text> </Text>
+        <Text dimColor>↑/↓ select · Enter confirm · Esc back</Text>
       </Box>
     );
   }
@@ -231,11 +283,19 @@ export function SetupScreen({
           value={fileInput}
           onChange={setFileInput}
           onSubmit={(value) => {
+            const efforts = ["low", "medium", "high"];
+            const effort = effortIndex >= 0 ? efforts[effortIndex] : undefined;
+
             // Save config for next launch
             projectConfig.provider = selectedProvider;
             projectConfig.model = modelInput;
             projectConfig.apiKey = apiKeyInput || undefined;
             projectConfig.baseUrl = baseUrlInput || undefined;
+            if (effort === "low" || effort === "medium" || effort === "high") {
+              projectConfig.reasoningEffort = effort;
+            } else {
+              projectConfig.reasoningEffort = undefined;
+            }
             projectConfig.save();
 
             onComplete({
@@ -244,6 +304,7 @@ export function SetupScreen({
               apiKey: apiKeyInput || projectConfig.resolvedApiKey(),
               baseUrl: baseUrlInput || undefined,
               findingsPath: value || "findings.json",
+              reasoningEffort: effort,
             });
           }}
         />
