@@ -154,9 +154,15 @@ function EventLine({ event, maxWidth }: { event: AgentEvent; maxWidth: number })
         </Box>
       );
     case "tool_result": {
-      // Compact: show first line only, dimmed
-      const firstLine = event.summary.split("\n")[0] ?? "";
-      return <Text dimColor>{clip(`    -> ${firstLine}`, maxWidth)}</Text>;
+      const lines = event.summary.split("\n");
+      return (
+        <>
+          {lines.map((line, i) => {
+            const prefix = i === 0 ? "    -> " : "       ";
+            return <Text key={i} dimColor>{clip(`${prefix}${line}`, maxWidth)}</Text>;
+          })}
+        </>
+      );
     }
     case "thinking":
       return <Text dimColor>{clip(event.delta, maxWidth)}</Text>;
