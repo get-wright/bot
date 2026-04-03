@@ -5,13 +5,13 @@ from pathlib import Path
 from textual.app import ComposeResult
 from textual.containers import Center, Vertical
 from textual.screen import Screen
-from textual.widgets import Label, Static
+from textual.widgets import Footer, Label, Static
 
 
 class TrustScreen(Screen):
     BINDINGS = [
-        ("y", "accept", "Yes"),
-        ("n", "reject", "No"),
+        ("y", "accept", "Yes — trust this folder"),
+        ("n", "reject", "No — exit"),
     ]
 
     def __init__(self, workspace: Path) -> None:
@@ -26,8 +26,7 @@ class TrustScreen(Screen):
                 yield Static("Do you trust the files in this folder?")
                 yield Static("")
                 yield Label(str(self._workspace), id="trust-path")
-                yield Static("")
-                yield Static("  [y] Yes    [n] No")
+        yield Footer()
 
     def action_accept(self) -> None:
         from sast_triage.tui.screens.config import ConfigScreen
