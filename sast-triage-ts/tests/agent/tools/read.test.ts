@@ -64,4 +64,53 @@ describe("createReadTool", () => {
     const tool = createReadTool(root);
     await expect(tool.execute({ path: "does_not_exist.txt" })).rejects.toThrow();
   });
+
+  describe("permission flow", () => {
+    it("allows pre-approved paths without asking", async () => {
+      const outside = makeTempDir();
+      writeFileSync(join(outside, "data.txt"), "secret\n");
+
+      const tool = createReadTool(root, {
+        isPathAllowed: () => true,
+        requestPermission: async () => "deny",
+      });
+      const result = await tool.execute({ path: join(outside, "data.txt") });
+      expect(result).toContain("secret");
+    });
+
+    it("asks permission for out-of-root paths and proceeds on 'once'", async () => {
+      const outside = makeTempDir();
+      writeFileSync(join(outside, "data.txt"), "content\n");
+
+      let askedPath = "";
+      const tool = createReadTool(root, {
+        isPathAllowed: () => false,
+        requestPermission: async (path) => {
+          askedPath = path;
+          return "once";
+        },
+      });
+      const result = await tool.execute({ path: join(outside, "data.txt") });
+      expect(result).toContain("content");
+      expect(askedPath).toBe(join(outside, "data.txt"));
+    });
+
+    it("denies access when permission rejected", async () => {
+      const outside = makeTempDir();
+      writeFileSync(join(outside, "data.txt"), "content\n");
+
+      const tool = createReadTool(root, {
+        isPathAllowed: () => false,
+        requestPermission: async () => "deny",
+      });
+      await expect(tool.execute({ path: join(outside, "data.txt") })).rejects.toThrow(
+        "Access denied",
+      );
+    });
+
+    it("rejects out-of-root paths when no permission handler provided", async () => {
+      const tool = createReadTool(root);
+      await expect(tool.execute({ path: "../etc/passwd" })).rejects.toThrow();
+    });
+  });
 });
