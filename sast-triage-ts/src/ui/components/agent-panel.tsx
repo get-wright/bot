@@ -3,6 +3,31 @@ import { Box, Text } from "ink";
 import type { AgentEvent } from "../../models/events.js";
 import { VerdictBanner } from "./verdict-banner.js";
 
+/**
+ * Collapse consecutive thinking events into single text blocks.
+ * Returns a mixed array of: { type: "thinking_block", text: string } | AgentEvent
+ */
+function collapseEvents(events: AgentEvent[]): (AgentEvent | { type: "thinking_block"; text: string })[] {
+  const result: (AgentEvent | { type: "thinking_block"; text: string })[] = [];
+  let pendingThinking = "";
+
+  for (const event of events) {
+    if (event.type === "thinking") {
+      pendingThinking += event.delta;
+    } else {
+      if (pendingThinking) {
+        result.push({ type: "thinking_block", text: pendingThinking });
+        pendingThinking = "";
+      }
+      result.push(event);
+    }
+  }
+  if (pendingThinking) {
+    result.push({ type: "thinking_block", text: pendingThinking });
+  }
+  return result;
+}
+
 export function AgentPanel({ events, isActive }: { events: AgentEvent[]; isActive: boolean }) {
   if (events.length === 0 && !isActive) {
     return (
@@ -11,11 +36,17 @@ export function AgentPanel({ events, isActive }: { events: AgentEvent[]; isActiv
       </Box>
     );
   }
+
+  const collapsed = collapseEvents(events);
+
   return (
     <Box flexDirection="column" padding={1} overflow="hidden">
-      {events.map((event, i) => (
-        <EventLine key={i} event={event} />
-      ))}
+      {collapsed.map((item, i) => {
+        if (item.type === "thinking_block") {
+          return <Text key={i} wrap="wrap">{item.text}</Text>;
+        }
+        return <EventLine key={i} event={item as AgentEvent} />;
+      })}
       {isActive && events.length > 0 && (
         <Text color="yellow">  Investigating...</Text>
       )}
@@ -26,15 +57,24 @@ export function AgentPanel({ events, isActive }: { events: AgentEvent[]; isActiv
 function EventLine({ event }: { event: AgentEvent }) {
   switch (event.type) {
     case "tool_start":
-      return <Text color="cyan">  * {formatToolStart(event.tool, event.args)}</Text>;
-    case "tool_result":
-      return <Text dimColor>    {"-> "}{event.summary}</Text>;
+      return <Text color="cyan" wrap="truncate">  * {formatToolStart(event.tool, event.args)}</Text>;
+    case "tool_result": {
+      const lines = event.summary.split("\n");
+      return (
+        <Box flexDirection="column">
+          {lines.map((line, i) => (
+            <Text key={i} dimColor wrap="truncate">    {i === 0 ? "-> " : "   "}{line}</Text>
+          ))}
+        </Box>
+      );
+    }
     case "thinking":
-      return <Text>  {event.delta}</Text>;
+      // Should not reach here after collapse, but handle gracefully
+      return <Text wrap="wrap">{event.delta}</Text>;
     case "verdict":
       return <VerdictBanner verdict={event.verdict} />;
     case "error":
-      return <Text color="red">  ! {event.message}</Text>;
+      return <Text color="red" wrap="truncate">  ! {event.message}</Text>;
   }
 }
 
