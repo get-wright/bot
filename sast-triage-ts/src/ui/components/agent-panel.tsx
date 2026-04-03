@@ -1,5 +1,6 @@
-import React from "react";
+import React, { useState } from "react";
 import { Box, Text } from "ink";
+import TextInput from "ink-text-input";
 import type { AgentEvent } from "../../models/events.js";
 import { VerdictBanner } from "./verdict-banner.js";
 
@@ -32,7 +33,22 @@ function collapseEvents(events: AgentEvent[]): (AgentEvent | { type: "thinking_b
   return result;
 }
 
-export function AgentPanel({ events, isActive, width }: { events: AgentEvent[]; isActive: boolean; width: number }) {
+export function AgentPanel({
+  events,
+  isActive,
+  width,
+  showFollowUpInput,
+  onFollowUp,
+  onPermissionResolve,
+}: {
+  events: AgentEvent[];
+  isActive: boolean;
+  width: number;
+  showFollowUpInput?: boolean;
+  onFollowUp?: (question: string) => void;
+  onPermissionResolve?: (decision: "once" | "always" | "deny") => void;
+}) {
+  const [followUpText, setFollowUpText] = useState("");
   if (events.length === 0 && !isActive) {
     return (
       <Box padding={1}>
@@ -54,6 +70,42 @@ export function AgentPanel({ events, isActive, width }: { events: AgentEvent[]; 
       })}
       {isActive && events.length > 0 && (
         <Text color="yellow">  Investigating...</Text>
+      )}
+      {/* Permission prompt */}
+      {(() => {
+        const permEvent = [...events].reverse().find((e: AgentEvent) => e.type === "permission_request");
+        if (permEvent && permEvent.type === "permission_request" && onPermissionResolve) {
+          return (
+            <Box flexDirection="column" marginTop={1} paddingX={2}>
+              <Text color="yellow" bold>Permission required</Text>
+              <Text>Read file outside project root:</Text>
+              <Text dimColor>{permEvent.path}</Text>
+              <Text> </Text>
+              <Text>
+                <Text color="green" bold>[a]</Text> Allow once{"  "}
+                <Text color="cyan" bold>[d]</Text> Allow dir always{"  "}
+                <Text color="red" bold>[x]</Text> Deny
+              </Text>
+            </Box>
+          );
+        }
+        return null;
+      })()}
+      {showFollowUpInput && onFollowUp && (
+        <Box marginTop={1} paddingX={2}>
+          <Text bold color="cyan">&gt; </Text>
+          <TextInput
+            value={followUpText}
+            onChange={setFollowUpText}
+            onSubmit={(value) => {
+              if (value.trim()) {
+                onFollowUp(value.trim());
+                setFollowUpText("");
+              }
+            }}
+            placeholder="Ask a follow-up question..."
+          />
+        </Box>
       )}
     </Box>
   );
@@ -80,7 +132,26 @@ function EventLine({ event, maxWidth }: { event: AgentEvent; maxWidth: number })
       return <VerdictBanner verdict={event.verdict} />;
     case "error":
       return <Text color="red">{clip(`  ! ${event.message}`, maxWidth)}</Text>;
+    case "usage":
+      return (
+        <Text dimColor>
+          {clip(`  Tokens: ${formatTokenCount(event.inputTokens)} in / ${formatTokenCount(event.outputTokens)} out`, maxWidth)}
+        </Text>
+      );
+    case "followup_start":
+      return (
+        <Box marginTop={1}>
+          <Text color="cyan" bold>{clip(`  > ${event.question}`, maxWidth)}</Text>
+        </Box>
+      );
+    case "permission_request":
+      return null; // Rendered separately as interactive prompt
   }
+}
+
+function formatTokenCount(n: number): string {
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
+  return String(n);
 }
 
 function formatToolStart(tool: string, args: Record<string, unknown>): string {
