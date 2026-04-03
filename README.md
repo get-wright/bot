@@ -58,14 +58,34 @@ Verify:
 
 ### 3. Run triage with LLM
 
+The `--provider` flag selects the LLM backend. If omitted, it is inferred from the model name.
+
+| Provider | `--provider` value | Example models | Notes |
+|---|---|---|---|
+| OpenAI (chat) | `openai` | gpt-4o, gpt-4o-mini | Standard chat models |
+| OpenAI (reasoning) | `openai-reasoning` | o3-mini, o1, o4-mini | Uses `developer` role + `reasoning_effort` |
+| Anthropic | `anthropic` | claude-sonnet-4-5 | Via OpenAI-compatible proxy (e.g., OpenRouter) |
+| OpenAI-compatible | `openai-compatible` | Any via OpenRouter/Ollama | Requires `--base-url` |
+
 ```bash
-# OpenAI
+# OpenAI reasoning model (provider auto-inferred as openai-reasoning)
 export OPENAI_API_KEY="sk-..."
 sast-triage triage findings.json --model o3-mini
 
-# OpenRouter (or any OpenAI-compatible provider)
+# OpenAI chat model (provider auto-inferred as openai)
+sast-triage triage findings.json --model gpt-4o
+
+# OpenRouter — explicit provider
 sast-triage triage findings.json \
-  --model z-ai/glm-4.7 \
+  --provider openai-compatible \
+  --model qwen/qwq-32b \
+  --base-url https://openrouter.ai/api/v1 \
+  --api-key sk-or-v1-...
+
+# Anthropic via OpenRouter
+sast-triage triage findings.json \
+  --provider openai-compatible \
+  --model anthropic/claude-sonnet-4-5 \
   --base-url https://openrouter.ai/api/v1 \
   --api-key sk-or-v1-...
 
@@ -136,14 +156,19 @@ sast-triage triage findings.json --model o3-mini --memory-db ./test.db -o run2.j
 
 ```python
 from sast_triage.pipeline import TriagePipeline
-from sast_triage.llm.client import TriageLLMClient
+from sast_triage.llm.client import Provider, TriageLLMClient
 from sast_triage.memory.store import MemoryStore
 
+# OpenRouter (open-weight models)
 llm = TriageLLMClient(
-    model="z-ai/glm-4.7",
+    model="qwen/qwq-32b",
+    provider=Provider.OPENAI_COMPATIBLE,
     api_key="sk-or-v1-...",
     base_url="https://openrouter.ai/api/v1",
 )
+
+# Or OpenAI reasoning model
+# llm = TriageLLMClient(model="o3-mini", provider=Provider.OPENAI_REASONING)
 
 # With memory
 memory = MemoryStore(db_path="./triage.db")
