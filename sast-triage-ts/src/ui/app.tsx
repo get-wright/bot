@@ -32,6 +32,7 @@ function MainScreen({
   config,
   memory,
   onSwitchProvider,
+  initialView = "active",
 }: {
   findings: Finding[];
   filteredFindings: { finding: Finding; reason: string }[];
@@ -39,10 +40,11 @@ function MainScreen({
   config: AppConfig;
   memory: MemoryStore;
   onSwitchProvider?: () => void;
+  initialView?: "active" | "filtered";
 }) {
   const { exit } = useApp();
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const [viewMode, setViewMode] = useState<"active" | "filtered">("active");
+  const [viewMode, setViewMode] = useState<"active" | "filtered">(initialView);
   const [filteredFindings, setFilteredFindings] = useState(initialFilteredFindings);
   const [findingStates, setFindingStates] = useState<FindingState[]>(() =>
     findings.map((f) => ({
@@ -561,8 +563,8 @@ function App({
     return <SetupScreen cwd={process.cwd()} projectConfig={projectConfig} onComplete={handleSetupComplete} startStep={switchingProvider ? "provider" : undefined} />;
   }
 
-  if (!config || findings.length === 0) {
-    return <Text color="yellow">No actionable findings found.</Text>;
+  if (!config || (findings.length === 0 && filteredFindings.length === 0)) {
+    return <Text color="yellow">No findings found.</Text>;
   }
 
   return (
@@ -573,6 +575,7 @@ function App({
       config={config}
       memory={memory}
       onSwitchProvider={handleSwitchProvider}
+      initialView={findings.length === 0 ? "filtered" : "active"}
     />
   );
 }
