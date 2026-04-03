@@ -1,5 +1,6 @@
 import React, { useState, useCallback } from "react";
-import { render, Box, Text, useInput, useApp } from "ink";
+import { Box, Text, useInput, useApp } from "ink";
+import { withFullScreen } from "fullscreen-ink";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { Finding } from "../models/finding.js";
@@ -298,16 +299,9 @@ export async function runTui(
   memory: MemoryStore,
   projectConfig: ProjectConfig,
 ): Promise<void> {
-  // Enter alternate screen buffer for clean full-screen rendering
-  process.stdout.write("\x1b[?1049h");
-  process.stdout.write("\x1b[H");
-
-  const instance = render(
+  const app = withFullScreen(
     <App initialConfig={initialConfig} memory={memory} projectConfig={projectConfig} />,
   );
-
-  await instance.waitUntilExit();
-
-  // Restore original screen buffer
-  process.stdout.write("\x1b[?1049l");
+  await app.start();
+  await app.waitUntilExit();
 }
