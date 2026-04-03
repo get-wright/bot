@@ -27,7 +27,7 @@ interface FindingState {
 
 function MainScreen({
   findings,
-  filteredFindings,
+  filteredFindings: initialFilteredFindings,
   totalCount,
   config,
   memory,
@@ -43,6 +43,7 @@ function MainScreen({
   const { exit } = useApp();
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [viewMode, setViewMode] = useState<"active" | "filtered">("active");
+  const [filteredFindings, setFilteredFindings] = useState(initialFilteredFindings);
   const [findingStates, setFindingStates] = useState<FindingState[]>(() =>
     findings.map((f) => ({
       entry: {
@@ -235,6 +236,50 @@ function MainScreen({
     }
   }, []);
 
+  // Promote a filtered finding to active and start triaging it
+  const promoteFiltered = useCallback(async () => {
+    if (isTriaging || viewMode !== "filtered") return;
+    const item = filteredFindings[selectedIndex];
+    if (!item) return;
+
+    const f = item.finding;
+    const newState: FindingState = {
+      entry: {
+        fingerprint: fingerprintFinding(f),
+        ruleId: f.check_id,
+        fileLine: `${f.path}:${f.start.line}`,
+        severity: f.extra.severity,
+        status: "pending" as FindingStatus,
+      },
+      finding: f,
+      events: [],
+    };
+
+    // Remove from filtered, add to active
+    setFilteredFindings((prev) => prev.filter((_, i) => i !== selectedIndex));
+    setFindingStates((prev) => [...prev, newState]);
+    if (selectedIndex >= filteredFindings.length - 1) {
+      setSelectedIndex(Math.max(0, selectedIndex - 1));
+    }
+
+    // Switch to active view and triage the new finding
+    const newIdx = findingStates.length; // it'll be appended at the end
+    setViewMode("active");
+    setSelectedIndex(newIdx);
+    setIsTriaging(true);
+    await triageIndex(newIdx);
+    setIsTriaging(false);
+  }, [isTriaging, viewMode, filteredFindings, selectedIndex, findingStates.length, triageIndex]);
+
+  // Dismiss a filtered finding (remove from list)
+  const dismissFiltered = useCallback(() => {
+    if (viewMode !== "filtered") return;
+    setFilteredFindings((prev) => prev.filter((_, i) => i !== selectedIndex));
+    if (selectedIndex >= filteredFindings.length - 1) {
+      setSelectedIndex(Math.max(0, selectedIndex - 1));
+    }
+  }, [viewMode, selectedIndex, filteredFindings.length]);
+
   const listLength = viewMode === "active" ? findingStates.length : filteredFindings.length;
 
   useInput((input, key) => {
@@ -278,12 +323,22 @@ function MainScreen({
       return;
     }
 
-    // Enter: start triage
-    if (key.return && !isTriaging && viewMode === "active") {
-      const indices = selectedIndices.size > 0
-        ? [...selectedIndices].filter((i) => !findingStates[i]!.verdict).sort((a, b) => a - b)
-        : [selectedIndex];
-      startBatchQueue(indices);
+    // Enter: start triage (active) or promote filtered finding
+    if (key.return && !isTriaging) {
+      if (viewMode === "active") {
+        const indices = selectedIndices.size > 0
+          ? [...selectedIndices].filter((i) => !findingStates[i]!.verdict).sort((a, b) => a - b)
+          : [selectedIndex];
+        startBatchQueue(indices);
+      } else {
+        promoteFiltered();
+      }
+      return;
+    }
+
+    // d: dismiss filtered finding
+    if (input === "d" && viewMode === "filtered" && !isTriaging) {
+      dismissFiltered();
       return;
     }
 
@@ -357,6 +412,8 @@ function MainScreen({
               <Text color="yellow">Filtered: {filteredFindings[selectedIndex].reason}</Text>
               <Text> </Text>
               <Text wrap="wrap">{filteredFindings[selectedIndex].finding.extra.message}</Text>
+              <Text> </Text>
+              <Text dimColor>Enter: re-audit · d: dismiss</Text>
             </Box>
           ) : (
             <Text>No filtered findings.</Text>
