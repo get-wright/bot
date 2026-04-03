@@ -10,7 +10,7 @@ SAST Triage — CLI tool + library that triages Semgrep findings via determinist
 
 ```bash
 pip install -e ".[dev]"                    # install with dev deps
-python3 -m pytest tests/ -v               # all tests (~100, ~0.7s, no network)
+python3 -m pytest tests/ -v               # all tests (~130, ~0.9s, no network)
 python3 -m pytest tests/test_parser.py -v  # single test file
 python3 -m pytest tests/ -v -k "test_name" # single test by name
 sast-triage triage findings.json --no-llm  # dry run (pre-filter + context only)

@@ -28,7 +28,7 @@ Provider determines: role (`developer` vs `system`), whether `reasoning_effort` 
 | Change user prompt format | `prompts.py` → `build_user_prompt()` | Assembles AssembledContext fields into text |
 | Add response format | `client.py` → `_try_structured()` | Uses Pydantic schema via `response_format` |
 | Change fallback parsing | `client.py` → `_try_raw()` + `_parse_raw_json()` | Bracket-matching JSON extractor |
-| Add CLI provider inference | `cli.py` → `_infer_provider()` | Model-name → provider mapping for backward compat |
+| Send raw chat messages | `client.py` → `chat()` | Public method for follow-up questions |
 
 ## FALLBACK CHAIN
 
@@ -46,4 +46,6 @@ Provider determines: role (`developer` vs `system`), whether `reasoning_effort` 
 
 - **Never add `reasoning_effort` unconditionally** — only `OPENAI_REASONING` provider sends it. Other APIs reject unknown parameters.
 - **Token logging uses `logger.info`** — `_log_usage()` logs prompt/completion tokens at INFO level. Set log level to WARNING in production to suppress.
-- **CLI `_infer_provider()` is a convenience, not the source of truth** — programmatic users must pass `provider=` explicitly. Inference exists only for CLI backward compatibility.
+- **CLI `--provider` is required** — no auto-inference from model name. Programmatic users must also pass `provider=` explicitly.
+- **`ANTHROPIC` provider does not call Anthropic's API directly** — `_PROVIDER_BASE_URLS` is empty. The enum only selects `ANTHROPIC_API_KEY` env var. To call Anthropic, use `OPENAI_COMPATIBLE` with `--base-url` (e.g. via OpenRouter) or pass `base_url=` programmatically.
+- **`OPENAI_COMPATIBLE` skips structured output entirely** — goes straight to `_try_raw()` bracket-matching JSON extractor. Lower reliability for models with inconsistent JSON formatting.

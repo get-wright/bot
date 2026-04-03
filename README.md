@@ -58,7 +58,7 @@ Verify:
 
 ### 3. Run triage with LLM
 
-The `--provider` flag selects the LLM backend. If omitted, it is inferred from the model name.
+The `--provider` flag selects the LLM backend and is required when using LLM.
 
 | Provider | `--provider` value | Example models | Notes |
 |---|---|---|---|
@@ -68,12 +68,12 @@ The `--provider` flag selects the LLM backend. If omitted, it is inferred from t
 | OpenAI-compatible | `openai-compatible` | Any via OpenRouter/Ollama | Requires `--base-url` |
 
 ```bash
-# OpenAI reasoning model (provider auto-inferred as openai-reasoning)
+# OpenAI reasoning model
 export OPENAI_API_KEY="sk-..."
-sast-triage triage findings.json --model o3-mini
+sast-triage triage findings.json --provider openai-reasoning --model o3-mini
 
-# OpenAI chat model (provider auto-inferred as openai)
-sast-triage triage findings.json --model gpt-4o
+# OpenAI chat model
+sast-triage triage findings.json --provider openai --model gpt-4o
 
 # OpenRouter — explicit provider
 sast-triage triage findings.json \

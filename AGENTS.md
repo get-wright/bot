@@ -1,12 +1,12 @@
 # PROJECT KNOWLEDGE BASE
 
 **Generated:** 2026-04-03
-**Commit:** 56a0a69
+**Commit:** a295199
 **Branch:** main
 
 ## OVERVIEW
 
-SAST Triage — CLI tool + library that triages Semgrep findings via deterministic context assembly + single LLM call. Python 3.12+, Pydantic v2, tree-sitter, OpenAI SDK, Click.
+SAST Triage — CLI tool + library + interactive TUI that triages Semgrep findings via deterministic context assembly + single LLM call. Python 3.12+, Pydantic v2, tree-sitter, OpenAI SDK, Click, Textual.
 
 ## STRUCTURE
 
@@ -19,7 +19,8 @@ sast_triage/
 ├── cli.py              # Click CLI: `triage` and `feedback` commands
 ├── context/            # Tree-sitter extraction + framework KB + context assembly (see context/AGENTS.md)
 ├── llm/                # OpenAI client with fallback chain + prompt templates (see llm/AGENTS.md)
-└── memory/             # SQLite verdict cache (MemoryStore) — context manager protocol
+├── memory/             # SQLite verdict cache (MemoryStore) — context manager protocol
+└── tui/                # Interactive Textual TUI — `sast-triage ui` (see tui/AGENTS.md)
 tests/
 ├── conftest.py         # Shared fixtures (JSON payloads + source file bytes)
 ├── fixtures/           # 3 Semgrep JSON outputs + 3 sample source files (py/js/ts)
@@ -62,7 +63,7 @@ tests/
 
 ```bash
 pip install -e ".[dev]"
-python3 -m pytest tests/ -v        # 100 tests, ~0.7s, no network/API keys
+python3 -m pytest tests/ -v        # 130 tests, ~0.9s, no network/API keys (TUI widget tests require textual)
 ```
 
 - Separate `tests/` dir, 1:1 file-per-module + `test_integration.py` + `test_cli.py`
@@ -71,6 +72,7 @@ python3 -m pytest tests/ -v        # 100 tests, ~0.7s, no network/API keys
 - `tmp_path` for SQLite in memory/pipeline tests
 - `class Test<Concept>` for multi-scenario suites; flat `def test_*` for simple modules
 - No `@pytest.mark.parametrize`, no coverage config, no CI test automation
+- TUI tests (`test_tui_widgets.py`, `test_tui_orchestrator.py`, `test_tui_config.py`) require `pip install -e ".[tui]"`
 
 ## COMMANDS
 
@@ -81,6 +83,7 @@ sast-triage triage findings.json --no-llm        # dry run (no LLM)
 sast-triage triage findings.json --model o3-mini  # with LLM (OpenAI reasoning)
 sast-triage triage findings.json --provider openai-compatible --model qwen/qwq-32b --base-url https://openrouter.ai/api/v1  # OpenRouter
 sast-triage feedback <fingerprint> "note"        # annotate stored record
+sast-triage ui                                   # interactive TUI (requires pip install -e ".[tui]")
 ```
 
 ## NOTES
