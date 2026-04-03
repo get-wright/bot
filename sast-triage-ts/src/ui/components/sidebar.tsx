@@ -4,6 +4,7 @@ import { Box, Text } from "ink";
 export function Sidebar({
   total,
   active,
+  filtered,
   triaged,
   tp,
   fp,
@@ -13,6 +14,7 @@ export function Sidebar({
 }: {
   total: number;
   active: number;
+  filtered: number;
   triaged: number;
   tp: number;
   fp: number;
@@ -25,6 +27,7 @@ export function Sidebar({
       <Text bold>Stats</Text>
       <Text>Total: {total}</Text>
       <Text>Active: {active}</Text>
+      <Text>Filtered: {filtered}</Text>
       <Text>Done: {triaged}</Text>
       <Text> </Text>
       <Text color="red">TP: {tp}</Text>
@@ -37,6 +40,7 @@ export function Sidebar({
       <Text> </Text>
       <Text dimColor>q: quit</Text>
       <Text dimColor>Enter: triage</Text>
+      <Text dimColor>Tab: switch view</Text>
     </Box>
   );
 }

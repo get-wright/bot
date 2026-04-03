@@ -25,17 +25,20 @@ interface FindingState {
 
 function MainScreen({
   findings,
+  filteredFindings,
   totalCount,
   config,
   memory,
 }: {
   findings: Finding[];
+  filteredFindings: { finding: Finding; reason: string }[];
   totalCount: number;
   config: AppConfig;
   memory: MemoryStore;
 }) {
   const { exit } = useApp();
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [viewMode, setViewMode] = useState<"active" | "filtered">("active");
   const [findingStates, setFindingStates] = useState<FindingState[]>(() =>
     findings.map((f) => ({
       entry: {
@@ -84,6 +87,7 @@ function MainScreen({
       },
       memoryHints,
       apiKey: config.apiKey,
+      baseUrl: config.baseUrl,
     });
 
     memory.store({
@@ -105,15 +109,22 @@ function MainScreen({
     setIsTriaging(false);
   }, [selectedIndex, selected, isTriaging, config, memory]);
 
+  const listLength = viewMode === "active" ? findingStates.length : filteredFindings.length;
+
   useInput((input, key) => {
     if (input === "q") {
       exit();
       return;
     }
+    if (key.tab) {
+      setViewMode(viewMode === "active" ? "filtered" : "active");
+      setSelectedIndex(0);
+      return;
+    }
     if (key.upArrow && selectedIndex > 0) setSelectedIndex(selectedIndex - 1);
-    if (key.downArrow && selectedIndex < findingStates.length - 1)
+    if (key.downArrow && selectedIndex < listLength - 1)
       setSelectedIndex(selectedIndex + 1);
-    if (key.return && !isTriaging) {
+    if (key.return && !isTriaging && viewMode === "active") {
       triageCurrent();
     }
   });
@@ -127,14 +138,34 @@ function MainScreen({
   return (
     <Box flexDirection="row" width={termWidth} height={process.stdout.rows - 1}>
       <Box width={tableWidth} flexDirection="column" borderStyle="single">
-        <FindingsTable
-          findings={findingStates.map((s) => s.entry)}
-          selectedIndex={selectedIndex}
-          triaged={triaged}
-        />
+        {viewMode === "active" ? (
+          <FindingsTable
+            findings={findingStates.map((s) => s.entry)}
+            selectedIndex={selectedIndex}
+            triaged={triaged}
+          />
+        ) : (
+          <Box flexDirection="column" padding={1}>
+            <Text bold>{`Filtered (${filteredFindings.length})`}</Text>
+            {filteredFindings.map((item, i) => {
+              const isSelected = i === selectedIndex;
+              return (
+                <Box key={i} flexDirection="column">
+                  <Text dimColor={!isSelected}>
+                    {isSelected ? "> " : "  "}
+                    {item.finding.check_id.split(".").pop()} {item.finding.path}:{item.finding.start.line}
+                  </Text>
+                  <Text color="yellow" dimColor={!isSelected}>{`    ${item.reason}`}</Text>
+                </Box>
+              );
+            })}
+          </Box>
+        )}
       </Box>
       <Box width={panelWidth} flexDirection="column" borderStyle="single">
-        {selected ? (
+        {viewMode === "filtered" ? (
+          <Text>Select a finding to investigate.</Text>
+        ) : selected ? (
           <AgentPanel
             events={selected.events}
             isActive={isTriaging && selectedIndex === findingStates.indexOf(selected)}
@@ -148,6 +179,7 @@ function MainScreen({
           <Sidebar
             total={totalCount}
             active={findings.length}
+            filtered={filteredFindings.length}
             triaged={triaged}
             tp={findingStates.filter((s) => s.verdict?.verdict === "true_positive").length}
             fp={findingStates.filter((s) => s.verdict?.verdict === "false_positive").length}
@@ -181,6 +213,7 @@ function App({
       : null,
   );
   const [findings, setFindings] = useState<Finding[]>([]);
+  const [filteredFindings, setFilteredFindings] = useState<{ finding: Finding; reason: string }[]>([]);
   const [totalCount, setTotalCount] = useState(0);
 
   const handleSetupComplete = useCallback(
@@ -194,6 +227,7 @@ function App({
         maxSteps: initialConfig.maxSteps ?? 15,
         memoryDb: initialConfig.memoryDb ?? ".sast-triage/memory.db",
         apiKey: result.apiKey,
+        baseUrl: result.baseUrl,
       };
 
       const filePath = resolve(result.findingsPath);
@@ -212,12 +246,19 @@ function App({
       const allFindings = parseSemgrepOutput(raw);
       const memoryLookup = memory.createLookup();
       const active: Finding[] = [];
+      const filtered: { finding: Finding; reason: string }[] = [];
       for (const f of allFindings) {
-        if (prefilterFinding(f, memoryLookup).passed) active.push(f);
+        const result = prefilterFinding(f, memoryLookup);
+        if (result.passed) {
+          active.push(f);
+        } else {
+          filtered.push({ finding: f, reason: result.reason ?? "Unknown" });
+        }
       }
 
       setConfig(fullConfig);
       setFindings(active);
+      setFilteredFindings(filtered);
       setTotalCount(allFindings.length);
       setScreen("main");
     },
@@ -235,6 +276,7 @@ function App({
   return (
     <MainScreen
       findings={findings}
+      filteredFindings={filteredFindings}
       totalCount={totalCount}
       config={config}
       memory={memory}
