@@ -298,8 +298,16 @@ export async function runTui(
   memory: MemoryStore,
   projectConfig: ProjectConfig,
 ): Promise<void> {
+  // Enter alternate screen buffer for clean full-screen rendering
+  process.stdout.write("\x1b[?1049h");
+  process.stdout.write("\x1b[H");
+
   const instance = render(
     <App initialConfig={initialConfig} memory={memory} projectConfig={projectConfig} />,
   );
+
   await instance.waitUntilExit();
+
+  // Restore original screen buffer
+  process.stdout.write("\x1b[?1049l");
 }
