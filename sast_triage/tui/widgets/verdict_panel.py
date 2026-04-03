@@ -52,9 +52,10 @@ class VerdictPanel(VerticalScroll):
         banner = f"  {label}    {confidence_pct}"
 
         parts = []
-        parts.append("Reasoning")
-        parts.append(verdict.reasoning)
-        parts.append("")
+        if verdict.reasoning and verdict.reasoning.strip():
+            parts.append("Reasoning")
+            parts.append(verdict.reasoning.strip())
+            parts.append("")
 
         if verdict.key_evidence:
             parts.append("Key Evidence")
@@ -65,6 +66,9 @@ class VerdictPanel(VerticalScroll):
         if verdict.suggested_fix:
             parts.append("Suggested Fix")
             parts.append(verdict.suggested_fix)
+
+        if not parts:
+            parts.append("No reasoning provided by model.")
 
         details = "\n".join(parts)
         return banner, details
