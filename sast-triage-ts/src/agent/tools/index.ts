@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { tool, type ToolSet } from "ai";
-import { createReadTool } from "./read.js";
+import { createReadTool, type PermissionCallbacks } from "./read.js";
 import { createGrepTool } from "./grep.js";
 import { createGlobTool } from "./glob.js";
 import { createBashTool } from "./bash.js";
@@ -9,10 +9,11 @@ import { TriageVerdictSchema } from "../../models/verdict.js";
 export interface ToolConfig {
   projectRoot: string;
   allowBash: boolean;
+  permissions?: PermissionCallbacks;
 }
 
 export function createTools(config: ToolConfig): ToolSet {
-  const readImpl = createReadTool(config.projectRoot);
+  const readImpl = createReadTool(config.projectRoot, config.permissions);
   const grepImpl = createGrepTool(config.projectRoot);
   const globImpl = createGlobTool(config.projectRoot);
 

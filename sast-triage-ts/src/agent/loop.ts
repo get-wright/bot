@@ -2,11 +2,14 @@ import { streamText, stepCountIs } from "ai";
 import type { Finding } from "../models/finding.js";
 import type { TriageVerdict } from "../models/verdict.js";
 import type { AgentEvent } from "../models/events.js";
+import type { PermissionDecision } from "../models/events.js";
 import { TriageVerdictSchema } from "../models/verdict.js";
 import { SYSTEM_PROMPT, formatFindingMessage } from "./system-prompt.js";
 import { DoomLoopDetector } from "./doom-loop.js";
 import { createTools } from "./tools/index.js";
 import { resolveProvider } from "../provider/registry.js";
+import { resolveProviderOptions, type ReasoningEffort } from "../provider/reasoning.js";
+import { dirname } from "node:path";
 
 export interface AgentLoopConfig {
   finding: Finding;
@@ -19,13 +22,41 @@ export interface AgentLoopConfig {
   memoryHints: string[];
   apiKey?: string;
   baseUrl?: string;
+  reasoningEffort?: ReasoningEffort;
+  allowedPaths?: string[];
 }
 
 export async function runAgentLoop(config: AgentLoopConfig): Promise<TriageVerdict> {
   const { finding, projectRoot, provider, model: modelId, maxSteps, allowBash, onEvent, memoryHints } = config;
 
   const languageModel = resolveProvider(provider, modelId, config.apiKey, config.baseUrl);
-  const tools = createTools({ projectRoot, allowBash });
+
+  const sessionApproved = new Set<string>(config.allowedPaths ?? []);
+
+  const isPathAllowed = (absPath: string): boolean => {
+    return [...sessionApproved].some(
+      (dir) => absPath === dir || absPath.startsWith(dir.endsWith("/") ? dir : dir + "/"),
+    );
+  };
+
+  const requestPermission = (absPath: string): Promise<PermissionDecision> => {
+    return new Promise<PermissionDecision>((resolvePromise) => {
+      const dir = dirname(absPath);
+      onEvent({
+        type: "permission_request",
+        path: absPath,
+        directory: dir,
+        resolve: (decision) => {
+          if (decision === "always") {
+            sessionApproved.add(dir);
+          }
+          resolvePromise(decision);
+        },
+      });
+    });
+  };
+
+  const tools = createTools({ projectRoot, allowBash, permissions: { isPathAllowed, requestPermission } });
   const doomLoop = new DoomLoopDetector();
   let finalVerdict: TriageVerdict | null = null;
 
@@ -36,11 +67,16 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<TriageVerdi
 
   const userMessage = formatFindingMessage(finding);
 
+  const providerOptions = config.reasoningEffort
+    ? (resolveProviderOptions(config.provider, config.reasoningEffort) as Parameters<typeof streamText>[0]["providerOptions"])
+    : undefined;
+
   const result = streamText({
     model: languageModel,
     system: systemPromptParts.join("\n\n"),
     messages: [{ role: "user", content: userMessage }],
     tools,
+    providerOptions,
     stopWhen: stepCountIs(maxSteps),
     onChunk({ chunk }) {
       switch (chunk.type) {
@@ -95,6 +131,21 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<TriageVerdi
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     onEvent({ type: "error", message: `API error: ${message}` });
+  }
+
+  // Emit token usage
+  try {
+    const totalUsage = await result.totalUsage;
+    onEvent({
+      type: "usage",
+      inputTokens: totalUsage.inputTokens ?? 0,
+      outputTokens: totalUsage.outputTokens ?? 0,
+      totalTokens: totalUsage.totalTokens ?? 0,
+      reasoningTokens: (totalUsage as Record<string, unknown>).reasoningTokens as number | undefined,
+      cachedInputTokens: (totalUsage as Record<string, unknown>).cachedInputTokens as number | undefined,
+    });
+  } catch {
+    // Usage not available — ignore
   }
 
   if (!finalVerdict) {

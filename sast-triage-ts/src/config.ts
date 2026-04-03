@@ -1,3 +1,5 @@
+import type { ReasoningEffort } from "./provider/reasoning.js";
+
 export interface AppConfig {
   findingsPath: string;
   provider: string;
@@ -8,6 +10,8 @@ export interface AppConfig {
   memoryDb: string;
   apiKey?: string;
   baseUrl?: string;
+  reasoningEffort?: ReasoningEffort;
+  allowedPaths?: string[];
 }
 
 export function resolveConfig(opts: {
