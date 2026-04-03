@@ -1,0 +1,192 @@
+{
+  "version": "1.45.0",
+  "results": [
+    {
+      "check_id": "python.django.security.injection.sql.sql-injection-using-raw",
+      "path": "sample_app.py",
+      "start": {
+        "line": 25,
+        "col": 4,
+        "offset": 500
+      },
+      "end": {
+        "line": 25,
+        "col": 60,
+        "offset": 556
+      },
+      "extra": {
+        "severity": "ERROR",
+        "message": "User-controlled data from request.GET is used in a raw SQL query without parameterization.",
+        "lines": "        cursor.execute(f\"SELECT * FROM users WHERE name = '{user_name}'\")",
+        "metadata": {
+          "cwe": ["CWE-89: SQL Injection"],
+          "confidence": "HIGH",
+          "category": "security",
+          "technology": ["django"],
+          "vulnerability_class": ["SQL Injection"],
+          "owasp": ["A03:2021 - Injection"]
+        },
+        "metavars": {
+          "$USER_INPUT": {
+            "start": {
+              "line": 25,
+              "col": 55,
+              "offset": 551
+            },
+            "end": {
+              "line": 25,
+              "col": 64,
+              "offset": 560
+            },
+            "abstract_content": "request.GET.get('name')"
+          }
+        },
+        "dataflow_trace": {
+          "taint_source": {
+            "content": "user_name = request.GET.get('name')",
+            "location": {
+              "path": "sample_app.py",
+              "start": {
+                "line": 23,
+                "col": 4,
+                "offset": 450
+              },
+              "end": {
+                "line": 23,
+                "col": 43,
+                "offset": 489
+              }
+            }
+          },
+          "intermediate_vars": [
+            {
+              "content": "user_name",
+              "location": {
+                "path": "sample_app.py",
+                "start": {
+                  "line": 25,
+                  "col": 55,
+                  "offset": 551
+                },
+                "end": {
+                  "line": 25,
+                  "col": 64,
+                  "offset": 560
+                }
+              }
+            }
+          ],
+          "taint_sink": {
+            "content": "cursor.execute(f\"SELECT * FROM users WHERE name = '{user_name}'\")",
+            "location": {
+              "path": "sample_app.py",
+              "start": {
+                "line": 25,
+                "col": 4,
+                "offset": 500
+              },
+              "end": {
+                "line": 25,
+                "col": 60,
+                "offset": 556
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "check_id": "python.flask.security.xss.reflected-xss",
+      "path": "sample_app.py",
+      "start": {
+        "line": 35,
+        "col": 11,
+        "offset": 700
+      },
+      "end": {
+        "line": 35,
+        "col": 45,
+        "offset": 734
+      },
+      "extra": {
+        "severity": "WARNING",
+        "message": "User input is reflected in response without escaping.",
+        "lines": "    return make_response(user_input)",
+        "metadata": {
+          "cwe": ["CWE-79: Cross-site Scripting"],
+          "confidence": "MEDIUM",
+          "category": "security",
+          "technology": ["flask"],
+          "vulnerability_class": ["Cross-Site Scripting"]
+        },
+        "metavars": {
+          "$USER_INPUT": {
+            "start": {
+              "line": 34,
+              "col": 16,
+              "offset": 670
+            },
+            "end": {
+              "line": 34,
+              "col": 40,
+              "offset": 694
+            },
+            "abstract_content": "request.args.get('q')"
+          }
+        },
+        "dataflow_trace": {
+          "taint_source": {
+            "content": "user_input = request.args.get('q')",
+            "location": {
+              "path": "sample_app.py",
+              "start": {
+                "line": 34,
+                "col": 4,
+                "offset": 658
+              },
+              "end": {
+                "line": 34,
+                "col": 40,
+                "offset": 694
+              }
+            }
+          },
+          "intermediate_vars": [
+            {
+              "content": "user_input",
+              "location": {
+                "path": "sample_app.py",
+                "start": {
+                  "line": 35,
+                  "col": 24,
+                  "offset": 713
+                },
+                "end": {
+                  "line": 35,
+                  "col": 34,
+                  "offset": 723
+                }
+              }
+            }
+          ],
+          "taint_sink": {
+            "content": "make_response(user_input)",
+            "location": {
+              "path": "sample_app.py",
+              "start": {
+                "line": 35,
+                "col": 11,
+                "offset": 700
+              },
+              "end": {
+                "line": 35,
+                "col": 45,
+                "offset": 734
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

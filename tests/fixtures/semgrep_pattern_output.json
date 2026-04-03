@@ -1,0 +1,89 @@
+{
+  "version": "1.45.0",
+  "results": [
+    {
+      "check_id": "python.lang.security.audit.exec-detected",
+      "path": "sample_app.py",
+      "start": {
+        "line": 43,
+        "col": 4,
+        "offset": 900
+      },
+      "end": {
+        "line": 43,
+        "col": 15,
+        "offset": 911
+      },
+      "extra": {
+        "severity": "WARNING",
+        "message": "Use of exec() detected. Executing arbitrary code is dangerous and should be avoided.",
+        "lines": "    exec(code)",
+        "metadata": {
+          "cwe": ["CWE-78: Improper Neutralization of Special Elements used in an OS Command"],
+          "confidence": "HIGH",
+          "category": "security",
+          "technology": ["python"],
+          "vulnerability_class": ["Code Injection"],
+          "owasp": ["A03:2021 - Injection"]
+        },
+        "metavars": {
+          "$CODE": {
+            "start": {
+              "line": 43,
+              "col": 9,
+              "offset": 905
+            },
+            "end": {
+              "line": 43,
+              "col": 13,
+              "offset": 909
+            },
+            "abstract_content": "code"
+          }
+        }
+      }
+    },
+    {
+      "check_id": "python.lang.security.audit.hardcoded-password",
+      "path": "sample_app.py",
+      "start": {
+        "line": 7,
+        "col": 0,
+        "offset": 180
+      },
+      "end": {
+        "line": 7,
+        "col": 46,
+        "offset": 226
+      },
+      "extra": {
+        "severity": "WARNING",
+        "message": "Hardcoded secret detected. Secrets should not be stored in source code.",
+        "lines": "SECRET_KEY = \"hardcoded-secret-key-123\"",
+        "metadata": {
+          "cwe": ["CWE-798: Use of Hard-coded Credentials"],
+          "confidence": "HIGH",
+          "category": "security",
+          "technology": ["python"],
+          "vulnerability_class": ["Hardcoded Credentials"],
+          "owasp": ["A07:2021 - Identification and Authentication Failures"]
+        },
+        "metavars": {
+          "$SECRET": {
+            "start": {
+              "line": 7,
+              "col": 13,
+              "offset": 193
+            },
+            "end": {
+              "line": 7,
+              "col": 46,
+              "offset": 226
+            },
+            "abstract_content": "hardcoded-secret-key-123"
+          }
+        }
+      }
+    }
+  ]
+}
