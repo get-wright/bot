@@ -1,8 +1,9 @@
 import React, { useState } from "react";
 import { Box, Text, useInput } from "ink";
 import TextInput from "ink-text-input";
-import { SUPPORTED_PROVIDERS, detectProviders } from "../../provider/registry.js";
+import { SUPPORTED_PROVIDERS } from "../../provider/registry.js";
 import type { ProviderName } from "../../provider/registry.js";
+import { ProjectConfig } from "../../config/project-config.js";
 
 const DEFAULT_MODELS: Record<ProviderName, string> = {
   openai: "gpt-4o",
@@ -14,30 +15,56 @@ const DEFAULT_MODELS: Record<ProviderName, string> = {
 export interface SetupResult {
   provider: string;
   model: string;
+  apiKey: string | undefined;
   findingsPath: string;
 }
 
-type SetupStep = "trust" | "provider" | "model" | "file";
+type SetupStep = "trust" | "provider" | "apikey" | "model" | "file";
+const STEP_ORDER: SetupStep[] = ["trust", "provider", "apikey", "model", "file"];
 
-export function SetupScreen({ cwd, onComplete }: { cwd: string; onComplete: (result: SetupResult) => void }) {
+function prevStep(current: SetupStep): SetupStep | null {
+  const idx = STEP_ORDER.indexOf(current);
+  return idx > 0 ? STEP_ORDER[idx - 1]! : null;
+}
+
+export function SetupScreen({
+  cwd,
+  projectConfig,
+  onComplete,
+}: {
+  cwd: string;
+  projectConfig: ProjectConfig;
+  onComplete: (result: SetupResult) => void;
+}) {
+  const saved = projectConfig.hasConfig();
   const [step, setStep] = useState<SetupStep>("trust");
-  const [providerIndex, setProviderIndex] = useState(0);
-  const [selectedProvider, setSelectedProvider] = useState<ProviderName>("openai");
-  const [modelInput, setModelInput] = useState("");
+  const [providerIndex, setProviderIndex] = useState(() => {
+    const idx = SUPPORTED_PROVIDERS.indexOf(projectConfig.provider);
+    return idx >= 0 ? idx : 0;
+  });
+  const [selectedProvider, setSelectedProvider] = useState<ProviderName>(projectConfig.provider);
+  const [apiKeyInput, setApiKeyInput] = useState("");
+  const [modelInput, setModelInput] = useState(projectConfig.model);
   const [fileInput, setFileInput] = useState("findings.json");
 
-  const providers = detectProviders();
+  const providers = projectConfig.detectedProviders();
+
+  const goBack = () => {
+    const prev = prevStep(step);
+    if (prev) setStep(prev);
+  };
 
   useInput((input, key) => {
     if (step === "trust") {
-      if (input === "y") {
-        const firstAvailable = providers.find((p) => p.hasKey);
-        if (firstAvailable) {
-          setProviderIndex(SUPPORTED_PROVIDERS.indexOf(firstAvailable.name));
-        }
-        setStep("provider");
-      }
+      if (input === "y") setStep("provider");
       if (input === "n") process.exit(0);
+      return;
+    }
+
+    // Escape goes back on all steps after trust
+    if (key.escape) {
+      goBack();
+      return;
     }
 
     if (step === "provider") {
@@ -47,11 +74,13 @@ export function SetupScreen({ cwd, onComplete }: { cwd: string; onComplete: (res
         const chosen = providers[providerIndex]!;
         setSelectedProvider(chosen.name);
         setModelInput(DEFAULT_MODELS[chosen.name]);
-        setStep("model");
+        setApiKeyInput("");
+        setStep("apikey");
       }
     }
   });
 
+  // --- Trust ---
   if (step === "trust") {
     return (
       <Box flexDirection="column" paddingX={2} paddingY={1}>
@@ -61,33 +90,74 @@ export function SetupScreen({ cwd, onComplete }: { cwd: string; onComplete: (res
         <Text> </Text>
         <Text dimColor>{cwd}</Text>
         <Text> </Text>
-        <Text><Text bold color="green">y</Text> — yes, trust   <Text bold color="red">n</Text> — no, exit</Text>
+        <Text>
+          <Text bold color="green">y</Text> — yes, trust {"  "}
+          <Text bold color="red">n</Text> — no, exit
+        </Text>
       </Box>
     );
   }
 
+  // --- Provider ---
   if (step === "provider") {
     return (
       <Box flexDirection="column" paddingX={2} paddingY={1}>
         <Text bold>Select Provider</Text>
+        {saved && <Text dimColor>Saved config: {projectConfig.provider} / {projectConfig.model}</Text>}
         <Text> </Text>
         {providers.map((p, i) => {
-          const selected = i === providerIndex;
-          const indicator = selected ? ">" : " ";
-          const keyStatus = p.hasKey ? <Text color="green"> ●</Text> : <Text color="red"> ○ no key</Text>;
+          const sel = i === providerIndex;
+          const indicator = sel ? ">" : " ";
+          const keyStatus = p.hasKey ? (
+            <Text color="green"> ●</Text>
+          ) : (
+            <Text color="red"> ○ no key</Text>
+          );
           return (
             <Text key={p.name}>
-              <Text color={selected ? "cyan" : undefined} bold={selected}> {indicator} {p.name}</Text>
+              <Text color={sel ? "cyan" : undefined} bold={sel}>
+                {" "}{indicator} {p.name}
+              </Text>
               {keyStatus}
             </Text>
           );
         })}
         <Text> </Text>
-        <Text dimColor>↑/↓ to select, Enter to confirm</Text>
+        <Text dimColor>↑/↓ select · Enter confirm · Esc back</Text>
       </Box>
     );
   }
 
+  // --- API Key ---
+  if (step === "apikey") {
+    const envHasKey = providers.find((p) => p.name === selectedProvider)?.hasKey;
+    return (
+      <Box flexDirection="column" paddingX={2} paddingY={1}>
+        <Text bold>API Key</Text>
+        <Text dimColor>Provider: {selectedProvider}</Text>
+        <Text> </Text>
+        {envHasKey && <Text color="green">● Environment variable detected</Text>}
+        <Text> </Text>
+        <Box>
+          <Text>API Key: </Text>
+          <TextInput
+            value={apiKeyInput}
+            onChange={setApiKeyInput}
+            mask="*"
+            onSubmit={() => setStep("model")}
+          />
+        </Box>
+        <Text> </Text>
+        <Text dimColor>
+          {envHasKey
+            ? "Enter to skip (use env var) · Or paste key to override · Esc back"
+            : "Paste your API key · Enter to confirm · Esc back"}
+        </Text>
+      </Box>
+    );
+  }
+
+  // --- Model ---
   if (step === "model") {
     return (
       <Box flexDirection="column" paddingX={2} paddingY={1}>
@@ -103,16 +173,18 @@ export function SetupScreen({ cwd, onComplete }: { cwd: string; onComplete: (res
           />
         </Box>
         <Text> </Text>
-        <Text dimColor>Enter to confirm</Text>
+        <Text dimColor>Enter to confirm · Esc back</Text>
       </Box>
     );
   }
 
-  // step === "file"
+  // --- File ---
   return (
     <Box flexDirection="column" paddingX={2} paddingY={1}>
       <Text bold>Findings File</Text>
-      <Text dimColor>Provider: {selectedProvider} / {modelInput}</Text>
+      <Text dimColor>
+        {selectedProvider} / {modelInput}
+      </Text>
       <Text> </Text>
       <Box>
         <Text>Path: </Text>
@@ -120,16 +192,23 @@ export function SetupScreen({ cwd, onComplete }: { cwd: string; onComplete: (res
           value={fileInput}
           onChange={setFileInput}
           onSubmit={(value) => {
+            // Save config for next launch
+            projectConfig.provider = selectedProvider;
+            projectConfig.model = modelInput;
+            projectConfig.apiKey = apiKeyInput || undefined;
+            projectConfig.save();
+
             onComplete({
               provider: selectedProvider,
               model: modelInput,
+              apiKey: apiKeyInput || projectConfig.resolvedApiKey(),
               findingsPath: value || "findings.json",
             });
           }}
         />
       </Box>
       <Text> </Text>
-      <Text dimColor>Enter to start (relative to project root)</Text>
+      <Text dimColor>Enter to start · Esc back</Text>
     </Box>
   );
 }
