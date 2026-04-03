@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef } from "react";
+import React, { useState, useCallback, useRef, useEffect } from "react";
 import { Box, Text, useInput, useApp } from "ink";
 import { withFullScreen } from "fullscreen-ink";
 import { readFileSync } from "node:fs";
@@ -18,6 +18,26 @@ import { Sidebar, type QueueItem, type UsageStats } from "./components/sidebar.j
 import { SetupScreen, type SetupResult } from "./components/setup-screen.js";
 import { ProjectConfig } from "../config/project-config.js";
 import { FindingDetail } from "./components/finding-detail.js";
+
+function useTerminalSize(): { columns: number; rows: number } {
+  const [size, setSize] = useState({
+    columns: process.stdout.columns ?? 120,
+    rows: process.stdout.rows ?? 40,
+  });
+
+  useEffect(() => {
+    const onResize = () => {
+      setSize({
+        columns: process.stdout.columns ?? 120,
+        rows: process.stdout.rows ?? 40,
+      });
+    };
+    process.stdout.on("resize", onResize);
+    return () => { process.stdout.off("resize", onResize); };
+  }, []);
+
+  return size;
+}
 
 interface FindingState {
   entry: FindingEntry;
@@ -394,14 +414,14 @@ function MainScreen({
     }
   });
 
-  const termWidth = process.stdout.columns ?? 120;
+  const { columns: termWidth, rows: termHeight } = useTerminalSize();
   const showSidebar = termWidth >= 100;
   const sidebarWidth = showSidebar ? Math.floor(termWidth * 0.18) : 0;
   const tableWidth = Math.floor(termWidth * 0.28);
   const panelWidth = termWidth - tableWidth - sidebarWidth;
 
   return (
-    <Box flexDirection="row" width={termWidth} height={process.stdout.rows - 1}>
+    <Box flexDirection="row" width={termWidth} height={termHeight - 1}>
       <Box width={tableWidth} flexDirection="column" borderStyle="single" overflow="hidden">
         {viewMode === "active" ? (
           <FindingsTable
