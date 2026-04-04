@@ -58,23 +58,6 @@ function collapseEvents(events: AgentEvent[]): CollapsedEvent[] {
   return result;
 }
 
-// --- Tool result formatting ---
-// Pi shows 10 lines for read, 15 for grep, 20 for find.
-// We show the summary (already truncated to 3 lines in loop.ts).
-// Reformat it for clarity.
-
-function formatToolResult(tool: string, summary: string, maxWidth: number): string[] {
-  const raw = summary.replace(/\t/g, "    ");
-  const lines = raw.split("\n");
-  const indent = "    ";
-  const cw = maxWidth - indent.length;
-
-  return lines.map((line) => {
-    const clipped = line.length > cw ? line.slice(0, cw - 1) + "…" : line;
-    return `${indent}${clipped}`;
-  });
-}
-
 // --- Tool call formatting (Pi style) ---
 // Pi: bold("read") + " " + accent(path) + warning(range)
 // We use: bold tool name + cyan args
@@ -201,19 +184,11 @@ function EventBlock({ event, maxWidth }: { event: AgentEvent; maxWidth: number }
       );
     }
 
-    case "tool_result": {
-      // read/glob: tool_start already shows what's happening — no need to echo file content
-      if (event.tool === "read" || event.tool === "glob") return null;
-      // grep/bash/verdict: show result lines (matches, command output, verdict JSON)
-      const lines = formatToolResult(event.tool, event.summary, maxWidth);
-      return (
-        <Box flexDirection="column">
-          {lines.map((line, i) => (
-            <L key={i} dimColor>{line}</L>
-          ))}
-        </Box>
-      );
-    }
+    case "tool_result":
+      // Tool call line already shows what's happening.
+      // Raw output (file content, grep matches) is noise in the activity log.
+      // The agent sees it internally; the user only needs the verdict.
+      return null;
 
     case "thinking":
       return <L dimColor>{clip(event.delta, maxWidth)}</L>;
