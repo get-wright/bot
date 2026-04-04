@@ -27,6 +27,35 @@ export interface AgentLoopConfig {
   allowedPaths?: string[];
 }
 
+/** Extract the most useful error message, digging into cause chains */
+function extractErrorMessage(err: unknown): string {
+  if (!(err instanceof Error)) return String(err);
+
+  // Dig into cause chain to find the root error (API errors are often wrapped)
+  let current: unknown = err;
+  const messages: string[] = [];
+  const seen = new Set<unknown>();
+
+  while (current instanceof Error && !seen.has(current)) {
+    seen.add(current);
+    if (current.message && !current.message.includes("Check the stream")) {
+      messages.push(current.message);
+    }
+    // Check for response body in API errors
+    const anyErr = current as unknown as Record<string, unknown>;
+    if (anyErr.statusCode) messages.push(`status ${anyErr.statusCode}`);
+    if (anyErr.responseBody && typeof anyErr.responseBody === "string") {
+      try {
+        const body = JSON.parse(anyErr.responseBody);
+        if (body.error?.message) messages.push(body.error.message);
+      } catch { /* not JSON */ }
+    }
+    current = (current as Error).cause;
+  }
+
+  return messages.length > 0 ? messages.join(" — ") : (err instanceof Error ? err.message : String(err));
+}
+
 export async function runAgentLoop(config: AgentLoopConfig): Promise<TriageVerdict> {
   const { finding, projectRoot, provider, model: modelId, maxSteps, allowBash, onEvent, memoryHints } = config;
 
@@ -157,7 +186,7 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<TriageVerdi
   try {
     await result.text;
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = extractErrorMessage(err);
     log.error("agent", `API error: ${message}`);
     onEvent({ type: "error", message: `API error: ${message}` });
   }
