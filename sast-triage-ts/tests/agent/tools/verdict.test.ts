@@ -48,13 +48,13 @@ describe("createVerdictTool", () => {
     ).rejects.toThrow();
   });
 
-  it("throws when required fields are missing", async () => {
+  it("defaults reasoning and key_evidence when missing", async () => {
     const tool = createVerdictTool();
-    await expect(
-      tool.execute({
-        verdict: "true_positive",
-        // missing reasoning and key_evidence
-      } as Parameters<ReturnType<typeof createVerdictTool>["execute"]>[0]),
-    ).rejects.toThrow();
+    const result = await tool.execute({
+      verdict: "true_positive",
+      // reasoning and key_evidence now have defaults
+    } as Parameters<ReturnType<typeof createVerdictTool>["execute"]>[0]);
+    expect(result.reasoning).toBe("");
+    expect(result.key_evidence).toEqual([]);
   });
 });

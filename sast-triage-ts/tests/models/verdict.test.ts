@@ -29,7 +29,40 @@ describe("TriageVerdictSchema", () => {
     ).toThrow();
   });
 
-  it("requires reasoning and key_evidence", () => {
-    expect(() => TriageVerdictSchema.parse({ verdict: "true_positive" })).toThrow();
+  it("defaults reasoning to empty string when missing", () => {
+    const v = TriageVerdictSchema.parse({ verdict: "true_positive", key_evidence: [] });
+    expect(v.reasoning).toBe("");
+  });
+
+  it("defaults key_evidence to empty array when missing", () => {
+    const v = TriageVerdictSchema.parse({ verdict: "true_positive", reasoning: "test" });
+    expect(v.key_evidence).toEqual([]);
+  });
+
+  it("accepts key_evidence as a newline-delimited string", () => {
+    const v = TriageVerdictSchema.parse({
+      verdict: "true_positive",
+      reasoning: "test",
+      key_evidence: "cursor.execute(sql)\nno parameterization",
+    });
+    expect(v.key_evidence).toEqual(["cursor.execute(sql)", "no parameterization"]);
+  });
+
+  it("strips leading bullet dashes from string key_evidence", () => {
+    const v = TriageVerdictSchema.parse({
+      verdict: "true_positive",
+      reasoning: "test",
+      key_evidence: "- cursor.execute(sql)\n- no parameterization",
+    });
+    expect(v.key_evidence).toEqual(["cursor.execute(sql)", "no parameterization"]);
+  });
+
+  it("handles single-line string key_evidence", () => {
+    const v = TriageVerdictSchema.parse({
+      verdict: "false_positive",
+      reasoning: "test",
+      key_evidence: "ORM handles escaping",
+    });
+    expect(v.key_evidence).toEqual(["ORM handles escaping"]);
   });
 });
