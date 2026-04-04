@@ -439,8 +439,9 @@ function MainScreen({
             </Text>
             {(viewMode === "filtered" ? filteredFindings : dismissedFindings).map((item, i) => {
               const isSelected = i === selectedIndex;
+              const fp = `${viewMode}-${item.finding.check_id}-${item.finding.path}-${item.finding.start.line}`;
               return (
-                <Box key={i} flexDirection="column">
+                <Box key={fp} flexDirection="column">
                   <Text dimColor={!isSelected}>
                     {isSelected ? "> " : "  "}
                     {item.finding.check_id.split(".").pop()} {item.finding.path}:{item.finding.start.line}

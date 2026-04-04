@@ -54,7 +54,7 @@ export function FindingsTable({
         const ruleShort = f.ruleId.split(".").pop() ?? f.ruleId;
         const mark = sel.has(i) ? "●" : " ";
         return (
-          <Box key={f.fingerprint}>
+          <Box key={`${f.fingerprint}-${i}`}>
             <Text color={color}>
               {highlighted ? ">" : " "}{mark} {icon} {ruleShort.slice(0, 20).padEnd(20)} {f.fileLine}
             </Text>
