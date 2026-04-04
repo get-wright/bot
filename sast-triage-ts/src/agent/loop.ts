@@ -114,7 +114,9 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<TriageVerdi
     providerOptions,
     stopWhen: stepCountIs(maxSteps),
     async prepareStep({ stepNumber }) {
-      log.debug("agent", `Step ${stepNumber + 1}/${maxSteps}`);
+      log.debug("agent", `Step ${stepNumber + 1}/${maxSteps}${finalVerdict ? " (verdict already delivered)" : ""}`);
+      // Skip overrides if verdict already delivered — no need to waste steps
+      if (finalVerdict) return;
       // Penultimate step: warn the model to wrap up
       if (stepNumber === maxSteps - 2) {
         return {
