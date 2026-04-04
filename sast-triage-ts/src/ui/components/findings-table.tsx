@@ -45,7 +45,7 @@ export function FindingsTable({
   const contentWidth = (width ?? 40) - 6;
 
   return (
-    <Box flexDirection="column" width="100%">
+    <Box flexDirection="column" width="100%" padding={1}>
       <Box marginBottom={1}>
         <Text bold>
           Findings {triaged}/{findings.length}
