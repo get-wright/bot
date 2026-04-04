@@ -10,6 +10,7 @@ import { createTools } from "./tools/index.js";
 import { resolveProvider } from "../provider/registry.js";
 import { resolveProviderOptions, type ReasoningEffort } from "../provider/reasoning.js";
 import { dirname } from "node:path";
+import { log } from "../logger.js";
 
 export interface AgentLoopConfig {
   finding: Finding;
@@ -28,6 +29,9 @@ export interface AgentLoopConfig {
 
 export async function runAgentLoop(config: AgentLoopConfig): Promise<TriageVerdict> {
   const { finding, projectRoot, provider, model: modelId, maxSteps, allowBash, onEvent, memoryHints } = config;
+
+  log.info("agent", `Starting triage: ${finding.check_id} at ${finding.path}:${finding.start.line}`);
+  log.debug("agent", "Config", { provider, model: modelId, maxSteps, allowBash, reasoningEffort: config.reasoningEffort });
 
   const languageModel = resolveProvider(provider, modelId, config.apiKey, config.baseUrl);
 
@@ -81,6 +85,7 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<TriageVerdi
     providerOptions,
     stopWhen: stepCountIs(maxSteps),
     async prepareStep({ stepNumber }) {
+      log.debug("agent", `Step ${stepNumber + 1}/${maxSteps}`);
       // Penultimate step: warn the model to wrap up
       if (stepNumber === maxSteps - 2) {
         return {
@@ -101,12 +106,14 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<TriageVerdi
     onChunk({ chunk }) {
       switch (chunk.type) {
         case "text-delta": {
+          log.debug("stream", "text-delta", chunk.text.slice(0, 100));
           onEvent({ type: "thinking", delta: chunk.text });
           break;
         }
         case "tool-call": {
           const toolName = chunk.toolName;
           const args = chunk.input as Record<string, unknown>;
+          log.info("tool", `${toolName}`, args);
           onEvent({ type: "tool_start", tool: toolName, args });
           doomLoop.record(toolName, args);
 
@@ -123,6 +130,7 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<TriageVerdi
         case "tool-result": {
           const output = String(chunk.output);
           const lines = output.split("\n");
+          log.debug("tool", `${chunk.toolName} result: ${lines.length} lines, ${output.length} bytes`);
           const summary =
             lines.length > 3
               ? lines.slice(0, 3).join("\n") + `\n... (${lines.length} lines)`
@@ -150,6 +158,7 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<TriageVerdi
     await result.text;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    log.error("agent", `API error: ${message}`);
     onEvent({ type: "error", message: `API error: ${message}` });
   }
 
@@ -169,6 +178,7 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<TriageVerdi
   }
 
   if (!finalVerdict) {
+    log.warn("agent", "No verdict delivered — falling back to needs_review");
     finalVerdict = {
       verdict: "needs_review",
       reasoning: "Agent did not deliver a verdict within the maximum number of steps.",
@@ -177,5 +187,6 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<TriageVerdi
     onEvent({ type: "verdict", verdict: finalVerdict });
   }
 
+  log.info("agent", `Verdict: ${finalVerdict.verdict}`, { reasoning: finalVerdict.reasoning.slice(0, 200) });
   return finalVerdict;
 }

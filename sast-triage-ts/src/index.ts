@@ -12,6 +12,7 @@ import { ProjectConfig } from "./config/project-config.js";
 import { runAgentLoop } from "./agent/loop.js";
 import type { AgentEvent } from "./models/events.js";
 import type { Finding } from "./models/finding.js";
+import { initLogger, log } from "./logger.js";
 
 const program = new Command();
 
@@ -27,7 +28,13 @@ program
   .option("--max-steps <n>", "Max agent loop steps per finding", "15")
   .option("--memory-db <path>", "SQLite memory DB path", ".sast-triage/memory.db")
   .option("--effort <level>", "Reasoning effort: low, medium, high")
+  .option("-v, --verbose", "Enable debug logging to .sast-triage/debug.log")
   .action(async (findingsPath: string | undefined, opts) => {
+    if (opts.verbose) {
+      const logPath = resolve(process.cwd(), ".sast-triage", "debug.log");
+      initLogger(logPath);
+      log.info("cli", "Debug logging enabled", { logPath });
+    }
     const config = resolveConfig({
       findingsPath,
       provider: opts.provider,
@@ -87,6 +94,7 @@ async function runHeadless(config: AppConfig, projectConfig: ProjectConfig): Pro
   const rawInput = readInput(config.findingsPath);
   const raw = JSON.parse(rawInput);
   const findings = parseSemgrepOutput(raw);
+  log.info("parser", `Parsed ${findings.length} findings from ${config.findingsPath}`);
 
   if (findings.length === 0) {
     console.error("No findings parsed from input.");
@@ -103,9 +111,11 @@ async function runHeadless(config: AppConfig, projectConfig: ProjectConfig): Pro
       active.push(f);
     } else {
       const fp = fingerprintFinding(f);
+      log.debug("prefilter", `Filtered ${f.check_id}: ${result.reason}`);
       console.log(JSON.stringify({ type: "filtered", fingerprint: fp, rule: f.check_id, reason: result.reason }));
     }
   }
+  log.info("prefilter", `${active.length} active, ${findings.length - active.length} filtered`);
 
   for (const finding of active) {
     const fp = fingerprintFinding(finding);

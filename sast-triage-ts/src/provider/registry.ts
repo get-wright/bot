@@ -2,6 +2,7 @@ import { createOpenAI } from "@ai-sdk/openai";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import type { LanguageModel } from "ai";
+import { log } from "../logger.js";
 
 export const SUPPORTED_PROVIDERS = ["openai", "anthropic", "google", "openrouter"] as const;
 export type ProviderName = (typeof SUPPORTED_PROVIDERS)[number];
@@ -27,6 +28,7 @@ export function resolveProvider(provider: string, model: string, apiKey?: string
 
   const name = provider as ProviderName;
   const resolvedKey = apiKey ?? process.env[ENV_KEYS[name]];
+  log.info("provider", `Resolving ${name}/${model}`, { baseUrl: baseUrl ?? "default", hasKey: !!resolvedKey });
 
   switch (name) {
     case "openai": {
