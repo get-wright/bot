@@ -429,24 +429,30 @@ function MainScreen({
             selectedIndex={selectedIndex}
             triaged={triaged}
             selectedIndices={selectedIndices}
+            width={tableWidth - 2}
           />
         ) : (
           <Box flexDirection="column" padding={1}>
-            <Text bold>
-              {viewMode === "filtered"
-                ? `Filtered (${filteredFindings.length})`
-                : `Dismissed (${dismissedFindings.length})`}
-            </Text>
+            <Box marginBottom={1}>
+              <Text bold>
+                {viewMode === "filtered"
+                  ? `Filtered (${filteredFindings.length})`
+                  : `Dismissed (${dismissedFindings.length})`}
+              </Text>
+            </Box>
             {(viewMode === "filtered" ? filteredFindings : dismissedFindings).map((item, i) => {
               const isSelected = i === selectedIndex;
               const fp = `${viewMode}-${item.finding.check_id}-${item.finding.path}-${item.finding.start.line}`;
+              const fileLine = `${item.finding.path}:${item.finding.start.line}`;
+              const rule = item.finding.check_id.split(".").pop() ?? "";
+              const cw = tableWidth - 4; // padding
+              const line = `${fileLine} ${rule}`;
+              const clipped = line.length > cw ? line.slice(0, cw - 1) + "…" : line;
               return (
-                <Box key={fp} flexDirection="column">
+                <Box key={fp}>
                   <Text dimColor={!isSelected}>
-                    {isSelected ? "> " : "  "}
-                    {item.finding.check_id.split(".").pop()} {item.finding.path}:{item.finding.start.line}
+                    {isSelected ? "> " : "  "}{clipped}
                   </Text>
-                  <Text color="yellow" dimColor={!isSelected}>{`    ${item.reason}`}</Text>
                 </Box>
               );
             })}
