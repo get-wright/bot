@@ -6,30 +6,34 @@ import type { TriageVerdict } from "../../models/verdict.js";
 
 /**
  * Clip text to maxWidth based on visual width.
- * Tabs are expanded to spaces first since they render as 8 chars
- * but count as 1 in string.length.
+ * Tabs expanded to 4 spaces. Pads to exact width to prevent Ink layout drift.
  */
 function clip(text: string, maxWidth: number): string {
   const expanded = text.replace(/\t/g, "    ");
-  if (expanded.length <= maxWidth) return expanded;
-  return expanded.slice(0, maxWidth - 1) + "…";
+  if (expanded.length > maxWidth) {
+    return expanded.slice(0, maxWidth - 1) + "…";
+  }
+  return expanded;
 }
 
 /** Word-wrap text to maxWidth, returning multiple lines. */
 function wrapText(text: string, maxWidth: number): string[] {
   if (maxWidth <= 0) return [text];
   const result: string[] = [];
-  const words = text.split(" ");
-  let line = "";
-  for (const word of words) {
-    if (line.length + word.length + (line ? 1 : 0) > maxWidth) {
-      if (line) result.push(line);
-      line = word.length > maxWidth ? word.slice(0, maxWidth - 1) + "…" : word;
-    } else {
-      line = line ? `${line} ${word}` : word;
+  // Split on existing newlines first
+  for (const paragraph of text.split("\n")) {
+    const words = paragraph.split(" ");
+    let line = "";
+    for (const word of words) {
+      if (line.length + word.length + (line ? 1 : 0) > maxWidth) {
+        if (line) result.push(line);
+        line = word.length > maxWidth ? word.slice(0, maxWidth - 1) + "…" : word;
+      } else {
+        line = line ? `${line} ${word}` : word;
+      }
     }
+    result.push(line);
   }
-  if (line) result.push(line);
   return result.length > 0 ? result : [""];
 }
 
@@ -59,6 +63,19 @@ function collapseEvents(events: AgentEvent[]): CollapsedEvent[] {
     result.push({ type: "thinking_block", text: pendingThinking });
   }
   return result;
+}
+
+/**
+ * Render a single pre-clipped line as a block-level element.
+ * Using <Box> instead of <Text> ensures Ink treats it as a block,
+ * preventing inline merging with adjacent elements.
+ */
+function Line({ children, ...props }: { children: string } & Record<string, unknown>) {
+  return (
+    <Box>
+      <Text {...props}>{children}</Text>
+    </Box>
+  );
 }
 
 export function AgentPanel({
@@ -95,7 +112,7 @@ export function AgentPanel({
           return (
             <Box key={i} flexDirection="column" marginBottom={1}>
               {wrapText(item.text, w).map((line, li) => (
-                <Text key={li} dimColor>{line}</Text>
+                <Line key={li} dimColor>{line}</Line>
               ))}
             </Box>
           );
@@ -103,7 +120,9 @@ export function AgentPanel({
         return <EventLine key={i} event={item as AgentEvent} maxWidth={w} />;
       })}
       {isActive && events.length > 0 && (
-        <Text color="yellow">{"\n"}  Investigating...</Text>
+        <Box marginTop={1}>
+          <Text color="yellow">  Investigating...</Text>
+        </Box>
       )}
       {/* Permission prompt */}
       {(() => {
@@ -111,15 +130,17 @@ export function AgentPanel({
         if (permEvent && permEvent.type === "permission_request" && onPermissionResolve) {
           return (
             <Box flexDirection="column" marginTop={1} paddingX={2}>
-              <Text color="yellow" bold>Permission required</Text>
-              <Text>Read file outside project root:</Text>
-              <Text dimColor>{permEvent.path}</Text>
-              <Text> </Text>
-              <Text>
-                <Text color="green" bold>[a]</Text> Allow once{"  "}
-                <Text color="cyan" bold>[d]</Text> Allow dir always{"  "}
-                <Text color="red" bold>[x]</Text> Deny
-              </Text>
+              <Line color="yellow" bold>Permission required</Line>
+              <Line>Read file outside project root:</Line>
+              <Line dimColor>{permEvent.path}</Line>
+              <Line> </Line>
+              <Box>
+                <Text>
+                  <Text color="green" bold>[a]</Text> Allow once{"  "}
+                  <Text color="cyan" bold>[d]</Text> Allow dir always{"  "}
+                  <Text color="red" bold>[x]</Text> Deny
+                </Text>
+              </Box>
             </Box>
           );
         }
@@ -156,26 +177,22 @@ function EventLine({ event, maxWidth }: { event: AgentEvent; maxWidth: number })
     case "tool_result": {
       const lines = event.summary.split("\n");
       return (
-        <>
+        <Box flexDirection="column">
           {lines.map((line, i) => {
             const prefix = i === 0 ? "    -> " : "       ";
-            return <Text key={i} dimColor>{clip(`${prefix}${line}`, maxWidth)}</Text>;
+            return <Line key={i} dimColor>{clip(`${prefix}${line}`, maxWidth)}</Line>;
           })}
-        </>
+        </Box>
       );
     }
     case "thinking":
-      return <Text dimColor>{clip(event.delta, maxWidth)}</Text>;
+      return <Line dimColor>{clip(event.delta, maxWidth)}</Line>;
     case "verdict":
       return <VerdictBanner verdict={event.verdict} maxWidth={maxWidth} />;
     case "error":
-      return <Text color="red">{clip(`  ! ${event.message}`, maxWidth)}</Text>;
+      return <Line color="red">{clip(`  ! ${event.message}`, maxWidth)}</Line>;
     case "usage":
-      return (
-        <Text dimColor>
-          {clip(`  Tokens: ${formatTokenCount(event.inputTokens)} in / ${formatTokenCount(event.outputTokens)} out`, maxWidth)}
-        </Text>
-      );
+      return <Line dimColor>{clip(`  Tokens: ${formatTokenCount(event.inputTokens)} in / ${formatTokenCount(event.outputTokens)} out`, maxWidth)}</Line>;
     case "followup_start":
       return (
         <Box marginTop={1}>
@@ -187,7 +204,7 @@ function EventLine({ event, maxWidth }: { event: AgentEvent; maxWidth: number })
   }
 }
 
-/** Verdict banner with proper text wrapping */
+/** Verdict banner with proper text wrapping — all content in block-level boxes */
 function VerdictBanner({ verdict, maxWidth }: { verdict: TriageVerdict; maxWidth: number }) {
   const colors: Record<string, string> = {
     true_positive: "red",
@@ -201,33 +218,31 @@ function VerdictBanner({ verdict, maxWidth }: { verdict: TriageVerdict; maxWidth
   };
   const color = colors[verdict.verdict] ?? "white";
   const label = labels[verdict.verdict] ?? verdict.verdict;
-  const contentWidth = maxWidth - 4; // account for paddingX
+  const cw = maxWidth - 4; // content width after paddingX
 
   return (
     <Box flexDirection="column" marginTop={1} paddingX={2}>
-      <Text bold color={color}># {label}</Text>
-      <Text> </Text>
-      <Text bold>Reasoning:</Text>
-      {wrapText(verdict.reasoning, contentWidth).map((line, i) => (
-        <Text key={`r-${i}`}>{line}</Text>
+      <Line bold color={color}>{`# ${label}`}</Line>
+      <Line> </Line>
+      <Line bold>Reasoning:</Line>
+      {wrapText(verdict.reasoning, cw).map((line, i) => (
+        <Line key={`r-${i}`}>{line}</Line>
       ))}
       {verdict.key_evidence.length > 0 && (
-        <>
-          <Text> </Text>
-          <Text bold>Evidence:</Text>
+        <Box flexDirection="column" marginTop={1}>
+          <Line bold>Evidence:</Line>
           {verdict.key_evidence.map((e, i) => (
-            <Text key={`e-${i}`}>{clip(`  - ${e}`, contentWidth)}</Text>
+            <Line key={`e-${i}`}>{clip(`  - ${e}`, cw)}</Line>
           ))}
-        </>
+        </Box>
       )}
       {verdict.suggested_fix && (
-        <>
-          <Text> </Text>
-          <Text bold>Fix:</Text>
-          {wrapText(verdict.suggested_fix, contentWidth).map((line, i) => (
-            <Text key={`f-${i}`}>{line}</Text>
+        <Box flexDirection="column" marginTop={1}>
+          <Line bold>Fix:</Line>
+          {wrapText(verdict.suggested_fix, cw).map((line, i) => (
+            <Line key={`f-${i}`}>{line}</Line>
           ))}
-        </>
+        </Box>
       )}
     </Box>
   );
