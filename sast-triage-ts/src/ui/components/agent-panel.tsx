@@ -202,6 +202,9 @@ function EventBlock({ event, maxWidth }: { event: AgentEvent; maxWidth: number }
     }
 
     case "tool_result": {
+      // read/glob: tool_start already shows what's happening — no need to echo file content
+      if (event.tool === "read" || event.tool === "glob") return null;
+      // grep/bash/verdict: show result lines (matches, command output, verdict JSON)
       const lines = formatToolResult(event.tool, event.summary, maxWidth);
       return (
         <Box flexDirection="column">
