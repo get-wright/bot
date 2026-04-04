@@ -64,7 +64,9 @@ export function SetupScreen({
   const providers = projectConfig.detectedProviders();
 
   // Auto-complete: saved config + findings.json exists → skip setup entirely
+  // Skip when startStepProp is set (e.g. provider switch via Ctrl+P)
   useEffect(() => {
+    if (startStepProp) return;
     if (saved && existsSync(resolve(cwd, "findings.json"))) {
       onComplete({
         provider: projectConfig.provider,
