@@ -114,11 +114,14 @@ export function AgentPanel({
     <Box flexDirection="column" padding={1} overflow="hidden">
       {collapsed.map((item, i) => {
         if (item.type === "thinking_block") {
+          // Show only reasoning intent, not echoed tool output.
+          // Extract first meaningful sentence — models often echo grep/read
+          // results in their thinking text which clutters the panel.
+          const firstLine = item.text.split("\n")[0]?.trim();
+          if (!firstLine) return null;
           return (
-            <Box key={i} flexDirection="column" marginBottom={1}>
-              {wrapText(item.text, w).map((line, li) => (
-                <L key={li} dimColor>{line}</L>
-              ))}
+            <Box key={i} marginTop={1}>
+              <Text dimColor>{clip(firstLine, w)}</Text>
             </Box>
           );
         }
