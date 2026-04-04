@@ -4,87 +4,112 @@ import TextInput from "ink-text-input";
 import type { AgentEvent } from "../../models/events.js";
 import type { TriageVerdict } from "../../models/verdict.js";
 
-/**
- * Clip text to maxWidth based on visual width.
- * Tabs expanded to 4 spaces. Pads to exact width to prevent Ink layout drift.
- */
+// --- Text utilities ---
+
+/** Clip text to maxWidth. Tabs → 4 spaces. */
 function clip(text: string, maxWidth: number): string {
-  const expanded = text.replace(/\t/g, "    ");
-  if (expanded.length > maxWidth) {
-    return expanded.slice(0, maxWidth - 1) + "…";
-  }
-  return expanded;
+  const s = text.replace(/\t/g, "    ");
+  return s.length > maxWidth ? s.slice(0, maxWidth - 1) + "…" : s;
 }
 
-/** Word-wrap text to maxWidth, returning multiple lines. */
+/** Word-wrap text respecting existing newlines. */
 function wrapText(text: string, maxWidth: number): string[] {
   if (maxWidth <= 0) return [text];
-  const result: string[] = [];
-  // Split on existing newlines first
-  for (const paragraph of text.split("\n")) {
-    const words = paragraph.split(" ");
+  const out: string[] = [];
+  for (const para of text.split("\n")) {
+    const words = para.split(" ");
     let line = "";
     for (const word of words) {
       if (line.length + word.length + (line ? 1 : 0) > maxWidth) {
-        if (line) result.push(line);
+        if (line) out.push(line);
         line = word.length > maxWidth ? word.slice(0, maxWidth - 1) + "…" : word;
       } else {
         line = line ? `${line} ${word}` : word;
       }
     }
-    result.push(line);
+    out.push(line);
   }
-  return result.length > 0 ? result : [""];
+  return out.length > 0 ? out : [""];
 }
 
-type CollapsedEvent =
-  | AgentEvent
-  | { type: "thinking_block"; text: string };
+// --- Block-level line ---
+// Wrapping Text in Box forces Ink to treat it as a block element,
+// preventing inline merging with adjacent elements.
+function L({ children, ...props }: { children: string } & Record<string, unknown>) {
+  return <Box><Text {...props}>{children}</Text></Box>;
+}
 
-/**
- * Collapse consecutive thinking events into single text blocks.
- */
+// --- Event collapsing ---
+
+type CollapsedEvent = AgentEvent | { type: "thinking_block"; text: string };
+
 function collapseEvents(events: AgentEvent[]): CollapsedEvent[] {
   const result: CollapsedEvent[] = [];
-  let pendingThinking = "";
-
-  for (const event of events) {
-    if (event.type === "thinking") {
-      pendingThinking += event.delta;
+  let buf = "";
+  for (const ev of events) {
+    if (ev.type === "thinking") {
+      buf += ev.delta;
     } else {
-      if (pendingThinking) {
-        result.push({ type: "thinking_block", text: pendingThinking });
-        pendingThinking = "";
-      }
-      result.push(event);
+      if (buf) { result.push({ type: "thinking_block", text: buf }); buf = ""; }
+      result.push(ev);
     }
   }
-  if (pendingThinking) {
-    result.push({ type: "thinking_block", text: pendingThinking });
-  }
+  if (buf) result.push({ type: "thinking_block", text: buf });
   return result;
 }
 
-/**
- * Render a single pre-clipped line as a block-level element.
- * Using <Box> instead of <Text> ensures Ink treats it as a block,
- * preventing inline merging with adjacent elements.
- */
-function Line({ children, ...props }: { children: string } & Record<string, unknown>) {
-  return (
-    <Box>
-      <Text {...props}>{children}</Text>
-    </Box>
-  );
+// --- Tool result formatting ---
+// Pi shows 10 lines for read, 15 for grep, 20 for find.
+// We show the summary (already truncated to 3 lines in loop.ts).
+// Reformat it for clarity.
+
+function formatToolResult(tool: string, summary: string, maxWidth: number): string[] {
+  const raw = summary.replace(/\t/g, "    ");
+  const lines = raw.split("\n");
+  const indent = "    ";
+  const cw = maxWidth - indent.length;
+
+  return lines.map((line) => {
+    const clipped = line.length > cw ? line.slice(0, cw - 1) + "…" : line;
+    return `${indent}${clipped}`;
+  });
 }
 
+// --- Tool call formatting (Pi style) ---
+// Pi: bold("read") + " " + accent(path) + warning(range)
+// We use: bold tool name + cyan args
+
+function formatToolCall(tool: string, args: Record<string, unknown>): { name: string; detail: string } {
+  switch (tool) {
+    case "read": {
+      const path = args.path as string;
+      const offset = args.offset as number | undefined;
+      const limit = args.limit as number | undefined;
+      const range = offset ? `:${offset}-${(offset ?? 1) + (limit ?? 200) - 1}` : "";
+      return { name: "read", detail: `${path}${range}` };
+    }
+    case "grep": {
+      const pattern = args.pattern as string;
+      const searchPath = (args.path as string) ?? ".";
+      const include = args.include as string | undefined;
+      return { name: "grep", detail: `/${pattern}/ in ${searchPath}${include ? ` (${include})` : ""}` };
+    }
+    case "glob":
+      return { name: "glob", detail: `${args.pattern as string}${args.path ? ` in ${args.path as string}` : ""}` };
+    case "bash":
+      return { name: "bash", detail: args.command as string };
+    case "verdict":
+      return { name: "verdict", detail: "" };
+    default:
+      return { name: tool, detail: JSON.stringify(args) };
+  }
+}
+
+// --- Main component ---
+
 export function AgentPanel({
-  events,
-  isActive,
-  width,
-  showFollowUpInput,
-  onFollowUp,
-  onPermissionResolve,
+  events, isActive, width,
+  showFollowUpInput, onFollowUp, onPermissionResolve,
 }: {
   events: AgentEvent[];
   isActive: boolean;
@@ -94,16 +119,13 @@ export function AgentPanel({
   onPermissionResolve?: (decision: "once" | "always" | "deny") => void;
 }) {
   const [followUpText, setFollowUpText] = useState("");
+  const w = width - 2;
+
   if (events.length === 0 && !isActive) {
-    return (
-      <Box padding={1}>
-        <Text dimColor>Press Enter to start investigating this finding.</Text>
-      </Box>
-    );
+    return <Box padding={1}><Text dimColor>Press Enter to start investigating.</Text></Box>;
   }
 
   const collapsed = collapseEvents(events);
-  const w = width - 2; // account for padding
 
   return (
     <Box flexDirection="column" padding={1} overflow="hidden">
@@ -112,33 +134,31 @@ export function AgentPanel({
           return (
             <Box key={i} flexDirection="column" marginBottom={1}>
               {wrapText(item.text, w).map((line, li) => (
-                <Line key={li} dimColor>{line}</Line>
+                <L key={li} dimColor>{line}</L>
               ))}
             </Box>
           );
         }
-        return <EventLine key={i} event={item as AgentEvent} maxWidth={w} />;
+        return <EventBlock key={i} event={item as AgentEvent} maxWidth={w} />;
       })}
+
       {isActive && events.length > 0 && (
-        <Box marginTop={1}>
-          <Text color="yellow">  Investigating...</Text>
-        </Box>
+        <Box marginTop={1}><Text color="yellow">  Investigating...</Text></Box>
       )}
+
       {/* Permission prompt */}
       {(() => {
-        const permEvent = [...events].reverse().find((e: AgentEvent) => e.type === "permission_request");
-        if (permEvent && permEvent.type === "permission_request" && onPermissionResolve) {
+        const perm = [...events].reverse().find((e: AgentEvent) => e.type === "permission_request");
+        if (perm && perm.type === "permission_request" && onPermissionResolve) {
           return (
             <Box flexDirection="column" marginTop={1} paddingX={2}>
-              <Line color="yellow" bold>Permission required</Line>
-              <Line>Read file outside project root:</Line>
-              <Line dimColor>{permEvent.path}</Line>
-              <Line> </Line>
+              <L color="yellow" bold>Permission required</L>
+              <L dimColor>{perm.path}</L>
               <Box>
                 <Text>
-                  <Text color="green" bold>[a]</Text> Allow once{"  "}
-                  <Text color="cyan" bold>[d]</Text> Allow dir always{"  "}
-                  <Text color="red" bold>[x]</Text> Deny
+                  <Text color="green" bold>[a]</Text>{" once  "}
+                  <Text color="cyan" bold>[d]</Text>{" dir always  "}
+                  <Text color="red" bold>[x]</Text>{" deny"}
                 </Text>
               </Box>
             </Box>
@@ -146,18 +166,14 @@ export function AgentPanel({
         }
         return null;
       })()}
+
       {showFollowUpInput && onFollowUp && (
         <Box marginTop={1} paddingX={2}>
           <Text bold color="cyan">&gt; </Text>
           <TextInput
             value={followUpText}
             onChange={setFollowUpText}
-            onSubmit={(value) => {
-              if (value.trim()) {
-                onFollowUp(value.trim());
-                setFollowUpText("");
-              }
-            }}
+            onSubmit={(v) => { if (v.trim()) { onFollowUp(v.trim()); setFollowUpText(""); } }}
             placeholder="Ask a follow-up question..."
           />
         </Box>
@@ -166,111 +182,102 @@ export function AgentPanel({
   );
 }
 
-function EventLine({ event, maxWidth }: { event: AgentEvent; maxWidth: number }) {
+// --- Event rendering ---
+
+function EventBlock({ event, maxWidth }: { event: AgentEvent; maxWidth: number }) {
   switch (event.type) {
-    case "tool_start":
+    case "tool_start": {
+      // Pi style: bold(name) + accent(detail)
+      const { name, detail } = formatToolCall(event.tool, event.args);
+      const line = detail ? `${name} ${detail}` : name;
       return (
         <Box marginTop={1}>
-          <Text color="cyan">{clip(`  * ${formatToolStart(event.tool, event.args)}`, maxWidth)}</Text>
-        </Box>
-      );
-    case "tool_result": {
-      const lines = event.summary.split("\n");
-      return (
-        <Box flexDirection="column">
-          {lines.map((line, i) => {
-            const prefix = i === 0 ? "    -> " : "       ";
-            return <Line key={i} dimColor>{clip(`${prefix}${line}`, maxWidth)}</Line>;
-          })}
+          <Text>
+            <Text color="gray">  </Text>
+            <Text bold>{name}</Text>
+            {detail ? <Text color="cyan">{` ${clip(detail, maxWidth - name.length - 3)}`}</Text> : null}
+          </Text>
         </Box>
       );
     }
+
+    case "tool_result": {
+      const lines = formatToolResult(event.tool, event.summary, maxWidth);
+      return (
+        <Box flexDirection="column">
+          {lines.map((line, i) => (
+            <L key={i} dimColor>{line}</L>
+          ))}
+        </Box>
+      );
+    }
+
     case "thinking":
-      return <Line dimColor>{clip(event.delta, maxWidth)}</Line>;
+      return <L dimColor>{clip(event.delta, maxWidth)}</L>;
+
     case "verdict":
-      return <VerdictBanner verdict={event.verdict} maxWidth={maxWidth} />;
+      return <VerdictBlock verdict={event.verdict} maxWidth={maxWidth} />;
+
     case "error":
-      return <Line color="red">{clip(`  ! ${event.message}`, maxWidth)}</Line>;
-    case "usage":
-      return <Line dimColor>{clip(`  Tokens: ${formatTokenCount(event.inputTokens)} in / ${formatTokenCount(event.outputTokens)} out`, maxWidth)}</Line>;
+      return <L color="red">{clip(`  ! ${event.message}`, maxWidth)}</L>;
+
+    case "usage": {
+      const fmt = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
+      return <L dimColor>{`  Tokens: ${fmt(event.inputTokens)} in / ${fmt(event.outputTokens)} out`}</L>;
+    }
+
     case "followup_start":
       return (
         <Box marginTop={1}>
           <Text color="cyan" bold>{clip(`  > ${event.question}`, maxWidth)}</Text>
         </Box>
       );
+
     case "permission_request":
       return null;
   }
 }
 
-/** Verdict banner with proper text wrapping — all content in block-level boxes */
-function VerdictBanner({ verdict, maxWidth }: { verdict: TriageVerdict; maxWidth: number }) {
-  const colors: Record<string, string> = {
-    true_positive: "red",
-    false_positive: "green",
-    needs_review: "#FF8C00",
-  };
-  const labels: Record<string, string> = {
-    true_positive: "TRUE POSITIVE",
-    false_positive: "FALSE POSITIVE",
-    needs_review: "NEEDS REVIEW",
-  };
-  const color = colors[verdict.verdict] ?? "white";
-  const label = labels[verdict.verdict] ?? verdict.verdict;
-  const cw = maxWidth - 4; // content width after paddingX
+// --- Verdict rendering ---
+
+function VerdictBlock({ verdict, maxWidth }: { verdict: TriageVerdict; maxWidth: number }) {
+  const color = { true_positive: "red", false_positive: "green", needs_review: "#FF8C00" }[verdict.verdict] ?? "white";
+  const label = { true_positive: "TRUE POSITIVE", false_positive: "FALSE POSITIVE", needs_review: "NEEDS REVIEW" }[verdict.verdict] ?? verdict.verdict;
+  const cw = maxWidth - 4;
 
   return (
     <Box flexDirection="column" marginTop={1} paddingX={2}>
-      <Line bold color={color}>{`# ${label}`}</Line>
-      <Line> </Line>
-      <Line bold>Reasoning:</Line>
-      {wrapText(verdict.reasoning, cw).map((line, i) => (
-        <Line key={`r-${i}`}>{line}</Line>
-      ))}
+      {/* Header */}
+      <Box><Text bold color={color}>{`  ${label}`}</Text></Box>
+      <L> </L>
+
+      {/* Reasoning — word-wrapped */}
+      <Box><Text bold>Reasoning: </Text></Box>
+      <Box flexDirection="column">
+        {wrapText(verdict.reasoning, cw).map((line, i) => (
+          <L key={`r${i}`}>{line}</L>
+        ))}
+      </Box>
+
+      {/* Evidence — each clipped */}
       {verdict.key_evidence.length > 0 && (
         <Box flexDirection="column" marginTop={1}>
-          <Line bold>Evidence:</Line>
+          <Box><Text bold>Evidence:</Text></Box>
           {verdict.key_evidence.map((e, i) => (
-            <Line key={`e-${i}`}>{clip(`  - ${e}`, cw)}</Line>
+            <L key={`e${i}`} dimColor>{clip(`  - ${e}`, cw)}</L>
           ))}
         </Box>
       )}
+
+      {/* Fix — word-wrapped */}
       {verdict.suggested_fix && (
         <Box flexDirection="column" marginTop={1}>
-          <Line bold>Fix:</Line>
+          <Box><Text bold>Fix:</Text></Box>
           {wrapText(verdict.suggested_fix, cw).map((line, i) => (
-            <Line key={`f-${i}`}>{line}</Line>
+            <L key={`f${i}`}>{line}</L>
           ))}
         </Box>
       )}
     </Box>
   );
-}
-
-function formatTokenCount(n: number): string {
-  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
-  return String(n);
-}
-
-function formatToolStart(tool: string, args: Record<string, unknown>): string {
-  switch (tool) {
-    case "read": {
-      const path = args.path as string;
-      const offset = args.offset as number | undefined;
-      const limit = args.limit as number | undefined;
-      const range = offset ? ` (lines ${offset}-${(offset ?? 1) + (limit ?? 200) - 1})` : "";
-      return `Reading ${path}${range}`;
-    }
-    case "grep":
-      return `Grepping "${args.pattern as string}" in ${(args.path as string) ?? "."}`;
-    case "glob":
-      return `Finding files: ${args.pattern as string}`;
-    case "bash":
-      return `Running: ${args.command as string}`;
-    case "verdict":
-      return `Delivering verdict`;
-    default:
-      return `${tool}(${JSON.stringify(args)})`;
-  }
 }
