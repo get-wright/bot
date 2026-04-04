@@ -27,33 +27,68 @@ export interface AgentLoopConfig {
   allowedPaths?: string[];
 }
 
-/** Extract the most useful error message, digging into cause chains */
+/** Extract the most useful error message, digging into cause chains.
+ *  Detects rate limits (429), auth errors (401/403), and provider-specific errors. */
 function extractErrorMessage(err: unknown): string {
   if (!(err instanceof Error)) return String(err);
 
-  // Dig into cause chain to find the root error (API errors are often wrapped)
   let current: unknown = err;
-  const messages: string[] = [];
   const seen = new Set<unknown>();
+  let statusCode: number | undefined;
+  let providerMessage = "";
+  let retryAfter = "";
 
+  // Walk the cause chain to find the real error
   while (current instanceof Error && !seen.has(current)) {
     seen.add(current);
-    if (current.message && !current.message.includes("Check the stream")) {
-      messages.push(current.message);
-    }
-    // Check for response body in API errors
     const anyErr = current as unknown as Record<string, unknown>;
-    if (anyErr.statusCode) messages.push(`status ${anyErr.statusCode}`);
-    if (anyErr.responseBody && typeof anyErr.responseBody === "string") {
+
+    // Capture status code
+    if (typeof anyErr.statusCode === "number") statusCode = anyErr.statusCode;
+
+    // Extract retry-after from headers
+    if (anyErr.responseHeaders && typeof anyErr.responseHeaders === "object") {
+      const headers = anyErr.responseHeaders as Record<string, string>;
+      if (headers["retry-after"]) retryAfter = headers["retry-after"];
+    }
+
+    // Parse response body for provider error message
+    if (typeof anyErr.responseBody === "string") {
       try {
         const body = JSON.parse(anyErr.responseBody);
-        if (body.error?.message) messages.push(body.error.message);
+        if (body.error?.message) providerMessage = body.error.message;
+        // OpenRouter includes retry_after in metadata
+        if (body.error?.metadata?.retry_after) retryAfter = `${body.error.metadata.retry_after}s`;
       } catch { /* not JSON */ }
     }
+
     current = (current as Error).cause;
   }
 
-  return messages.length > 0 ? messages.join(" — ") : (err instanceof Error ? err.message : String(err));
+  // Format user-facing message based on status code
+  if (statusCode === 429) {
+    const wait = retryAfter ? ` Retry after ${retryAfter}.` : " Try again shortly.";
+    return `Rate limited by provider.${wait}${providerMessage ? ` (${providerMessage})` : ""}`;
+  }
+  if (statusCode === 401 || statusCode === 403) {
+    return `Authentication failed (${statusCode}). Check your API key.${providerMessage ? ` (${providerMessage})` : ""}`;
+  }
+  if (statusCode === 402) {
+    return `Insufficient credits (402).${providerMessage ? ` ${providerMessage}` : ""}`;
+  }
+  if (statusCode && statusCode >= 500) {
+    return `Provider error (${statusCode}).${providerMessage ? ` ${providerMessage}` : " The service may be temporarily unavailable."}`;
+  }
+
+  // Fallback: use provider message or original error
+  if (providerMessage) return providerMessage;
+
+  // Strip useless AI SDK wrapper messages
+  const msg = err instanceof Error ? err.message : String(err);
+  if (msg.includes("No output generated") || msg.includes("Check the stream")) {
+    return "No response from provider. The model may be unavailable or overloaded.";
+  }
+  return msg;
 }
 
 export async function runAgentLoop(config: AgentLoopConfig): Promise<TriageVerdict> {
