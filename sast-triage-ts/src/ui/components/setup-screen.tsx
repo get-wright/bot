@@ -173,13 +173,17 @@ export function SetupScreen({
 
   // --- API Key ---
   if (step === "apikey") {
-    const envHasKey = providers.find((p) => p.name === selectedProvider)?.hasKey;
+    const savedHasKey = !!projectConfig.savedApiKeys[selectedProvider];
+    const envKeyName = { openai: "OPENAI_API_KEY", anthropic: "ANTHROPIC_API_KEY", google: "GOOGLE_API_KEY", openrouter: "OPENROUTER_API_KEY" }[selectedProvider];
+    const envHasKey = !!process.env[envKeyName];
+    const hasAnyKey = savedHasKey || envHasKey;
     return (
       <Box flexDirection="column" paddingX={2} paddingY={1}>
         <Text bold>API Key</Text>
         <Text dimColor>Provider: {selectedProvider}</Text>
         <Text> </Text>
-        {envHasKey && <Text color="green">● Environment variable detected</Text>}
+        {savedHasKey && <Text color="green">● Saved key found</Text>}
+        {!savedHasKey && envHasKey && <Text color="green">● Environment variable detected</Text>}
         <Text> </Text>
         <Box>
           <Text>API Key: </Text>
@@ -192,8 +196,8 @@ export function SetupScreen({
         </Box>
         <Text> </Text>
         <Text dimColor>
-          {envHasKey
-            ? "Enter to skip (use env var) · Or paste key to override · Esc back"
+          {hasAnyKey
+            ? "Enter to skip (use existing) · Or paste key to override · Esc back"
             : "Paste your API key · Enter to confirm · Esc back"}
         </Text>
       </Box>

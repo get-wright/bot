@@ -23,6 +23,7 @@ export class ProjectConfig {
   memoryDbPath: string;
   reasoningEffort: ReasoningEffort | undefined;
   allowedPaths: string[] = [];
+  savedApiKeys: Partial<Record<ProviderName, string>> = {};
 
   constructor(workspace: string) {
     this.workspace = workspace;
@@ -57,6 +58,12 @@ export class ProjectConfig {
 
       const apiKeys = provider.api_keys as Record<string, string> | undefined;
       if (apiKeys) {
+        // Store all provider keys so detectedProviders() can show them
+        for (const [name, key] of Object.entries(apiKeys)) {
+          if (SUPPORTED_PROVIDERS.includes(name as ProviderName) && typeof key === "string") {
+            this.savedApiKeys[name as ProviderName] = key;
+          }
+        }
         // Try current provider first, then any key
         const key = apiKeys[this.provider] ?? Object.values(apiKeys)[0];
         if (key) this.apiKey = key;
@@ -84,11 +91,18 @@ export class ProjectConfig {
   }
 
   save(): void {
+    // Merge current apiKey into savedApiKeys so keys persist across provider switches
+    if (this.apiKey) {
+      this.savedApiKeys[this.provider] = this.apiKey;
+    }
+    const apiKeys = Object.fromEntries(
+      Object.entries(this.savedApiKeys).filter(([, v]) => v),
+    );
     const data: Record<string, unknown> = {
       provider: {
         name: this.provider,
         model: this.model,
-        ...(this.apiKey ? { api_keys: { [this.provider]: this.apiKey } } : {}),
+        ...(Object.keys(apiKeys).length > 0 ? { api_keys: apiKeys } : {}),
         ...(this.baseUrl ? { base_url: this.baseUrl } : {}),
         ...(this.reasoningEffort ? { reasoning_effort: this.reasoningEffort } : {}),
       },
@@ -105,12 +119,12 @@ export class ProjectConfig {
   detectedProviders(): { name: ProviderName; hasKey: boolean }[] {
     return SUPPORTED_PROVIDERS.map((name) => ({
       name,
-      hasKey: !!process.env[ENV_KEYS[name]],
+      hasKey: !!process.env[ENV_KEYS[name]] || !!this.savedApiKeys[name],
     }));
   }
 
-  /** Returns API key: explicit override > toml > env var */
+  /** Returns API key: explicit override > saved > env var */
   resolvedApiKey(): string | undefined {
-    return this.apiKey ?? process.env[ENV_KEYS[this.provider]];
+    return this.apiKey ?? this.savedApiKeys[this.provider] ?? process.env[ENV_KEYS[this.provider]];
   }
 }
