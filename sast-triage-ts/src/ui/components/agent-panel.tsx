@@ -66,7 +66,8 @@ function formatToolCall(tool: string, args: Record<string, unknown>): { name: st
 function formatTimestamp(iso: string): string {
   try {
     const d = new Date(iso);
-    return d.toLocaleString(undefined, { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+    const pad = (n: number) => n.toString().padStart(2, "0");
+    return `${pad(d.getHours())}:${pad(d.getMinutes())} - ${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`;
   } catch {
     return iso;
   }
@@ -128,13 +129,6 @@ export function AgentPanel({
 
   return (
     <Box flexDirection="column" padding={1} overflow="hidden">
-      {/* Cached-at timestamp — shown only for previously audited findings */}
-      {cachedAt && (
-        <Box marginBottom={1}>
-          <Text dimColor italic>  audited {formatTimestamp(cachedAt)}</Text>
-        </Box>
-      )}
-
       {/* Investigation log — compact tool calls */}
       {toolCalls.map((tc, i) => (
         <Box key={`t${i}`}>
@@ -178,10 +172,14 @@ export function AgentPanel({
       {/* Verdict card */}
       {verdict && <VerdictCard verdict={verdict} width={w} />}
 
-      {/* Token usage — below card */}
-      {usage && (
+      {/* Token usage + cached-at timestamp — below card */}
+      {(usage || cachedAt) && (
         <Box marginTop={verdict ? 1 : 0}>
-          <Text dimColor>{`  ${fmt(usage.inputTokens)} in / ${fmt(usage.outputTokens)} out`}</Text>
+          <Text dimColor>
+            {usage ? `  ${fmt(usage.inputTokens)} in / ${fmt(usage.outputTokens)} out` : ""}
+            {usage && cachedAt ? "  ·  " : usage ? "" : "  "}
+            {cachedAt ? formatTimestamp(cachedAt) : ""}
+          </Text>
         </Box>
       )}
 
