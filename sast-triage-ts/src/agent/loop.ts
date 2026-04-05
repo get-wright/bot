@@ -1,4 +1,4 @@
-import { streamText, stepCountIs } from "ai";
+import { streamText, stepCountIs, generateObject } from "ai";
 import type { Finding } from "../models/finding.js";
 import type { TriageVerdict } from "../models/verdict.js";
 import type { AgentEvent } from "../models/events.js";
@@ -244,13 +244,40 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<TriageVerdi
   }
 
   if (!finalVerdict) {
-    log.warn("agent", "No verdict delivered — falling back to needs_review");
-    finalVerdict = {
-      verdict: "needs_review",
-      reasoning: "Agent did not deliver a verdict within the maximum number of steps.",
-      key_evidence: [],
-    };
-    onEvent({ type: "verdict", verdict: finalVerdict });
+    // Weak models often ignore toolChoice and generate text instead.
+    // Fall back to generateObject (JSON mode) which has better compliance.
+    log.warn("agent", "No verdict from tool call — attempting generateObject fallback");
+    try {
+      const responseMessages = (await result.response).messages;
+      const { object } = await generateObject({
+        model: languageModel,
+        schema: TriageVerdictSchema,
+        providerOptions,
+        system: systemPrompt,
+        messages: [
+          { role: "user", content: userMessage },
+          ...responseMessages,
+          {
+            role: "user",
+            content:
+              "Based on your investigation above, deliver your final verdict as a JSON object " +
+              "with fields: verdict (true_positive|false_positive|needs_review), reasoning (string), " +
+              "key_evidence (array of strings), suggested_fix (string, optional).",
+          },
+        ],
+      });
+      finalVerdict = object;
+      log.info("agent", "Verdict recovered via generateObject fallback", { verdict: finalVerdict.verdict });
+      onEvent({ type: "verdict", verdict: finalVerdict });
+    } catch (err) {
+      log.warn("agent", `generateObject fallback failed: ${err instanceof Error ? err.message : String(err)}`);
+      finalVerdict = {
+        verdict: "needs_review",
+        reasoning: "Agent did not deliver a verdict within the maximum number of steps.",
+        key_evidence: [],
+      };
+      onEvent({ type: "verdict", verdict: finalVerdict });
+    }
   }
 
   log.info("agent", `Verdict: ${finalVerdict.verdict}`, { reasoning: finalVerdict.reasoning.slice(0, 200) });
