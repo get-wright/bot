@@ -66,17 +66,4 @@ describe("prefilterFinding", () => {
     const result = prefilterFinding(makeFinding({ severity: "info" }));
     expect(result.passed).toBe(false);
   });
-
-  it("filters cached verdicts when memory lookup provided", () => {
-    const lookup = (_fp: string) => ({ verdict: "false_positive" as const });
-    const result = prefilterFinding(makeFinding(), lookup);
-    expect(result.passed).toBe(false);
-    expect(result.reason).toContain("Cached");
-  });
-
-  it("passes when memory lookup returns null", () => {
-    const lookup = (_fp: string) => null;
-    const result = prefilterFinding(makeFinding(), lookup);
-    expect(result.passed).toBe(true);
-  });
 });

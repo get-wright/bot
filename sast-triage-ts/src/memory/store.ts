@@ -1,6 +1,5 @@
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import type { MemoryLookup } from "../parser/prefilter.js";
 import { VerdictValue } from "../models/verdict.js";
 import type { TriageVerdict } from "../models/verdict.js";
 
@@ -156,14 +155,6 @@ export class MemoryStore {
       hints.push(`${records.length} previous findings for rule ${checkId}: ${tpCount}/${records.length} true positives`);
     }
     return hints;
-  }
-
-  createLookup(): MemoryLookup {
-    return (fingerprint: string) => {
-      const record = this.lookup(fingerprint);
-      if (!record) return null;
-      return { verdict: record.verdict };
-    };
   }
 
   close(): void {

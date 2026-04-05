@@ -1,12 +1,9 @@
 import type { Finding } from "../models/finding.js";
-import { fingerprintFinding } from "./semgrep.js";
 
 export interface PrefilterResult {
   passed: boolean;
   reason?: string;
 }
-
-export type MemoryLookup = (fingerprint: string) => { verdict: string } | null;
 
 const TEST_DIR_PATTERNS = ["__tests__", "/tests/", "tests/", "/test/", "test/", "testing/"];
 const TEST_FILE_PATTERNS = ["test_", "_test.", ".test.", ".spec.", "conftest.", "test_helper"];
@@ -16,14 +13,9 @@ const GENERATED_PATH_PATTERNS = [
   ".pb.go", "/gen/", "gen/", "/generated/", "generated/",
 ];
 
-export function prefilterFinding(finding: Finding, memoryLookup?: MemoryLookup): PrefilterResult {
+export function prefilterFinding(finding: Finding): PrefilterResult {
   if (isTestFile(finding.path)) return { passed: false, reason: "Test file" };
   if (isGeneratedFile(finding.path)) return { passed: false, reason: "Generated/vendor file" };
-  if (memoryLookup) {
-    const fp = fingerprintFinding(finding);
-    const cached = memoryLookup(fp);
-    if (cached) return { passed: false, reason: `Cached verdict: ${cached.verdict}` };
-  }
   if (isInfoSeverity(finding)) return { passed: false, reason: "Informational severity" };
   return { passed: true };
 }

@@ -597,11 +597,10 @@ function App({
       }
 
       const allFindings = parseSemgrepOutput(raw);
-      const memoryLookup = memory.createLookup();
       const active: Finding[] = [];
       const filtered: { finding: Finding; reason: string }[] = [];
       for (const f of allFindings) {
-        const result = prefilterFinding(f, memoryLookup);
+        const result = prefilterFinding(f);
         if (result.passed) {
           active.push(f);
         } else {

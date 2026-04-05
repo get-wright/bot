@@ -75,8 +75,7 @@ program
     if (config.provider && config.model && config.findingsPath) {
       const raw = JSON.parse(readInput(config.findingsPath));
       const allFindings = parseSemgrepOutput(raw);
-      const memoryLookup = memory.createLookup();
-      const active = allFindings.filter((f) => prefilterFinding(f, memoryLookup).passed);
+      const active = allFindings.filter((f) => prefilterFinding(f).passed);
 
       if (active.length === 0) {
         console.error("No actionable findings after prefilter.");
@@ -102,11 +101,10 @@ async function runHeadless(config: AppConfig, projectConfig: ProjectConfig): Pro
   }
 
   const memory = new MemoryStore(resolve(config.memoryDb));
-  const memoryLookup = memory.createLookup();
 
   const active: Finding[] = [];
   for (const f of findings) {
-    const result = prefilterFinding(f, memoryLookup);
+    const result = prefilterFinding(f);
     if (result.passed) {
       active.push(f);
     } else {

@@ -104,11 +104,4 @@ describe("MemoryStore", () => {
     const hints = store.getHints("popular.rule", "unknown-fp");
     expect(hints.some((h) => h.includes("previous findings"))).toBe(true);
   });
-
-  it("createLookup returns a function usable by prefilter", () => {
-    store.store({ fingerprint: "abc123", check_id: "test.rule", path: "src/app.py", verdict: "false_positive", reasoning: "safe", key_evidence: [] });
-    const lookup = store.createLookup();
-    expect(lookup("abc123")).toEqual({ verdict: "false_positive" });
-    expect(lookup("unknown")).toBeNull();
-  });
 });
