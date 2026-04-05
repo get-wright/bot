@@ -129,6 +129,9 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<TriageVerdi
   const tools = createTools({ projectRoot, allowBash, permissions: { isPathAllowed, requestPermission } });
   const doomLoop = new DoomLoopDetector();
   let finalVerdict: TriageVerdict | null = null;
+  // Capture the model's text output during investigation — used as reasoning
+  // fallback if the model returns a partial verdict from generateObject.
+  let accumulatedText = "";
 
   const systemPromptParts = [SYSTEM_PROMPT];
   if (memoryHints.length > 0) {
@@ -175,6 +178,7 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<TriageVerdi
       switch (chunk.type) {
         case "text-delta": {
           log.debug("stream", "text-delta", chunk.text.slice(0, 100));
+          accumulatedText += chunk.text;
           onEvent({ type: "thinking", delta: chunk.text });
           break;
         }
@@ -248,13 +252,17 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<TriageVerdi
   if (!finalVerdict) {
     // Weak models often ignore toolChoice and generate text instead.
     // Fall back to generateObject (JSON mode) which has better compliance.
-    // Use a stricter schema here (no defaults) to force the model to emit
-    // reasoning and evidence — otherwise weak models emit just {verdict: "..."}.
+    //
+    // Design: use a LENIENT schema here. Strict constraints (min chars,
+    // min array length) cause generateObject to throw on weak models that
+    // emit just {verdict: "..."}, losing even the verdict they did give us.
+    // Instead, accept whatever the model returns and backfill missing
+    // reasoning from the model's own accumulated text from the main stream.
     log.warn("agent", "No verdict from tool call — attempting generateObject fallback");
     const FallbackSchema = z.object({
-      verdict: VerdictValue,
-      reasoning: z.string().min(20).describe("Detailed explanation of the verdict referencing specific code lines and data flow"),
-      key_evidence: z.array(z.string()).min(1).describe("Specific evidence items (line numbers, code patterns, framework protections) that support the verdict"),
+      verdict: VerdictValue.describe("Final verdict: true_positive, false_positive, or needs_review"),
+      reasoning: z.string().optional().describe("Detailed explanation referencing specific code lines and data flow"),
+      key_evidence: z.array(z.string()).optional().describe("Specific evidence items (line numbers, code patterns, framework protections)"),
       suggested_fix: z.string().optional().describe("Concrete fix suggestion if applicable"),
     });
     try {
@@ -270,18 +278,31 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<TriageVerdi
           {
             role: "user",
             content:
-              "Based on your investigation above, deliver your final verdict. You MUST populate " +
-              "ALL fields with substantive content: verdict, reasoning (explain your analysis in " +
-              "detail with specific line numbers and code references), key_evidence (list 2-4 " +
-              "specific evidence items from the code you investigated), and suggested_fix if " +
-              "applicable. Do not return a partial or empty verdict.",
+              "Based on your investigation above, deliver your final verdict as JSON with " +
+              "verdict, reasoning (detailed analysis with line numbers), key_evidence " +
+              "(specific evidence items), and suggested_fix if applicable.",
           },
         ],
       });
-      finalVerdict = object;
+      // Backfill missing fields using the model's own accumulated text from
+      // the main stream. This text is the model's own analysis that preceded
+      // the stream ending — it's the reasoning the model already articulated.
+      const reasoning = (object.reasoning?.trim())
+        || accumulatedText.trim().slice(0, 2000)
+        || "Model did not provide detailed reasoning.";
+      const evidence = (object.key_evidence && object.key_evidence.length > 0)
+        ? object.key_evidence
+        : [];
+      finalVerdict = {
+        verdict: object.verdict,
+        reasoning,
+        key_evidence: evidence,
+        suggested_fix: object.suggested_fix,
+      };
       log.info("agent", "Verdict recovered via generateObject fallback", {
         verdict: finalVerdict.verdict,
-        reasoning: finalVerdict.reasoning.slice(0, 100),
+        reasoningSource: object.reasoning?.trim() ? "generateObject" : "accumulatedText",
+        reasoningLength: finalVerdict.reasoning.length,
         evidenceCount: finalVerdict.key_evidence.length,
       });
       onEvent({ type: "verdict", verdict: finalVerdict });
