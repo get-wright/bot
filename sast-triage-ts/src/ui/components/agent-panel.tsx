@@ -172,14 +172,13 @@ export function AgentPanel({
       {/* Verdict card */}
       {verdict && <VerdictCard verdict={verdict} width={w} />}
 
-      {/* Token usage + cached-at timestamp — below card */}
+      {/* Token usage (left) + cached-at timestamp (right) — below card */}
       {(usage || cachedAt) && (
-        <Box marginTop={verdict ? 1 : 0}>
+        <Box marginTop={verdict ? 1 : 0} width={w} justifyContent="space-between">
           <Text dimColor>
-            {usage ? `  ${fmt(usage.inputTokens)} in / ${fmt(usage.outputTokens)} out` : ""}
-            {usage && cachedAt ? "  ·  " : usage ? "" : "  "}
-            {cachedAt ? formatTimestamp(cachedAt) : ""}
+            {usage ? `  ${fmt(usage.inputTokens)} in / ${fmt(usage.outputTokens)} out` : "  "}
           </Text>
+          {cachedAt && <Text dimColor>{formatTimestamp(cachedAt)}</Text>}
         </Box>
       )}
 
