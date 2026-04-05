@@ -191,8 +191,9 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<TriageVerdi
 
           if (toolName === "verdict") {
             try {
+              // Parse but don't emit yet — backfill synthesis happens at
+              // end-of-stream so we can use accumulatedText if reasoning is empty.
               finalVerdict = TriageVerdictSchema.parse(args);
-              onEvent({ type: "verdict", verdict: finalVerdict });
             } catch {
               onEvent({ type: "error", message: "Invalid verdict format from LLM" });
             }
@@ -232,6 +233,32 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<TriageVerdi
     const message = extractErrorMessage(err);
     log.error("agent", `API error: ${message}`);
     onEvent({ type: "error", message: `API error: ${message}` });
+  }
+
+  // If verdict came from tool call, backfill missing reasoning/evidence from
+  // the model's accumulated text. Weak models (GLM-4.7) often call the verdict
+  // tool with empty reasoning/evidence after writing the analysis as text.
+  if (finalVerdict !== null) {
+    const v: TriageVerdict = finalVerdict;
+    const needsBackfill = !v.reasoning.trim() || v.key_evidence.length === 0;
+    if (needsBackfill) {
+      const synthesized = accumulatedText.trim().slice(0, 2000);
+      const backfilledReasoning = v.reasoning.trim()
+        || synthesized
+        || "Model did not provide detailed reasoning.";
+      finalVerdict = {
+        verdict: v.verdict,
+        reasoning: backfilledReasoning,
+        key_evidence: v.key_evidence,
+        suggested_fix: v.suggested_fix,
+      };
+      log.info("agent", "Backfilled verdict from accumulated text", {
+        reasoningSource: v.reasoning.trim() ? "toolCall" : (synthesized ? "accumulatedText" : "placeholder"),
+        reasoningLength: backfilledReasoning.length,
+        evidenceCount: finalVerdict.key_evidence.length,
+      });
+    }
+    onEvent({ type: "verdict", verdict: finalVerdict });
   }
 
   // Emit token usage
