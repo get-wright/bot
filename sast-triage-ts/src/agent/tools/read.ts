@@ -4,6 +4,7 @@ import type { PermissionDecision } from "../../models/events.js";
 
 const MAX_BYTES = 50 * 1024;
 const DEFAULT_LIMIT = 200;
+const MAX_LINE_CHARS = 2000;
 
 export interface ReadToolInput {
   path: string;
@@ -56,15 +57,40 @@ export function createReadTool(projectRoot: string, permissions?: PermissionCall
         throw new Error(`Binary file not supported: ${path}`);
       }
 
+      const totalBytes = buf.length;
+      const bytesTruncated = totalBytes > MAX_BYTES;
       const capped = buf.subarray(0, MAX_BYTES);
       const lines = capped.toString("utf8").split("\n");
       // Remove trailing empty element from trailing newline
       if (lines.at(-1) === "") lines.pop();
 
+      const totalLines = lines.length;
       const start = Math.max(1, offset);
-      const slice = lines.slice(start - 1, start - 1 + limit);
+      const end = Math.min(totalLines, start - 1 + limit);
+      const slice = lines.slice(start - 1, end);
 
-      return slice.map((line, i) => `${start + i}\t${line}`).join("\n");
+      // Truncate overly long lines (minified JS, SVG data URIs, etc.)
+      const formatted = slice.map((line, i) => {
+        const truncated = line.length > MAX_LINE_CHARS
+          ? line.slice(0, MAX_LINE_CHARS) + `… [line truncated, ${line.length} chars total]`
+          : line;
+        return `${start + i}\t${truncated}`;
+      }).join("\n");
+
+      // Append metadata footer so the agent knows where it is in the file
+      const atEnd = end >= totalLines;
+      let footer: string;
+      if (bytesTruncated) {
+        footer = `\n\n[Showing lines ${start}-${end} — file exceeds ${MAX_BYTES} byte cap, use offset to read further]`;
+      } else if (start === 1 && atEnd) {
+        footer = `\n\n[End of file — ${totalLines} lines total]`;
+      } else if (atEnd) {
+        footer = `\n\n[End of file — showed lines ${start}-${end} of ${totalLines}]`;
+      } else {
+        footer = `\n\n[Showing lines ${start}-${end} of ${totalLines} — use offset=${end + 1} to continue]`;
+      }
+
+      return formatted + footer;
     },
   };
 }

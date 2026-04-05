@@ -65,6 +65,38 @@ describe("createReadTool", () => {
     await expect(tool.execute({ path: "does_not_exist.txt" })).rejects.toThrow();
   });
 
+  it("appends end-of-file footer when reading full file", async () => {
+    writeFileSync(join(root, "short.txt"), "one\ntwo\nthree\n");
+    const tool = createReadTool(root);
+    const result = await tool.execute({ path: "short.txt" });
+    expect(result).toContain("[End of file — 3 lines total]");
+  });
+
+  it("appends pagination hint when file exceeds limit", async () => {
+    const content = Array.from({ length: 50 }, (_, i) => `line ${i + 1}`).join("\n");
+    writeFileSync(join(root, "long.txt"), content);
+    const tool = createReadTool(root);
+    const result = await tool.execute({ path: "long.txt", limit: 10 });
+    expect(result).toContain("[Showing lines 1-10 of 50 — use offset=11 to continue]");
+  });
+
+  it("indicates EOF when offset reaches end", async () => {
+    const content = Array.from({ length: 20 }, (_, i) => `line ${i + 1}`).join("\n");
+    writeFileSync(join(root, "file.txt"), content);
+    const tool = createReadTool(root);
+    const result = await tool.execute({ path: "file.txt", offset: 15, limit: 10 });
+    expect(result).toContain("[End of file — showed lines 15-20 of 20]");
+  });
+
+  it("truncates overly long lines", async () => {
+    const longLine = "x".repeat(3000);
+    writeFileSync(join(root, "minified.js"), longLine);
+    const tool = createReadTool(root);
+    const result = await tool.execute({ path: "minified.js" });
+    expect(result).toContain("[line truncated, 3000 chars total]");
+    expect(result).not.toContain("x".repeat(2500));
+  });
+
   describe("permission flow", () => {
     it("allows pre-approved paths without asking", async () => {
       const outside = makeTempDir();
