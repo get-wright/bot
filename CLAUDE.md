@@ -13,12 +13,13 @@ The LLM drives its own investigation via read/grep/glob/bash tools and delivers 
 ```bash
 cd sast-triage-ts
 npm install                                # install deps
-npx vitest run                             # all tests (111, ~0.7s, no network)
+npx vitest run                             # all tests (112, ~0.7s, no network)
 npx tsc --noEmit                           # type check
 bun build src/index.ts --compile --outfile sast-triage  # compile binary
-./sast-triage                              # interactive TUI
+./sast-triage                              # interactive TUI (debug log on by default)
 ./sast-triage findings.json --provider openai --model gpt-4o --headless  # NDJSON
-./sast-triage --effort high -v             # reasoning effort + debug logging
+./sast-triage --effort high                # reasoning effort
+./sast-triage --no-log                     # disable debug logging
 ```
 
 ## Architecture
@@ -26,13 +27,16 @@ bun build src/index.ts --compile --outfile sast-triage  # compile binary
 ```
 Semgrep JSON → Parser → Pre-filter → Agent Loop (LLM + tools) → Verdict → Memory
                 │            │              │                       │
-          Finding model  filter out:    streamText + tools       TriageVerdict
-                         test files,    read/grep/glob/bash      → SQLite cache
-                         generated,     doom loop detection
-                         cached,        prepareStep (force verdict)
-                         INFO sev       generateObject fallback
+          Finding model  filter out:    streamText + tools    TriageVerdict +
+                         test files,    read/grep/glob/bash   tool_calls + tokens
+                         generated,     doom loop detection   → SQLite cache
+                         INFO sev       prepareStep (force verdict)
+                                        generateObject fallback (lenient schema)
+                                        accumulatedText backfill
                                         providerOptions (reasoning)
                                         permission callbacks
+
+  Cached findings → reload on startup → synthesize events → full activity log
 ```
 
 ### Provider System
@@ -47,26 +51,28 @@ Built with Ink 6 + React 19 + `fullscreen-ink`. Three-panel layout: findings tab
 
 **Setup flow:** TrustScreen → Provider → API Key → Base URL → Model → Effort → File → Main Screen. Config persisted to `.sast-triage.toml` per repo. On relaunch with saved config + `findings.json` present, skips setup entirely.
 
-**Views:** Tab cycles active → filtered → dismissed. Active findings can be triaged (Enter), re-audited (r), or followed up (f). Filtered findings can be promoted to active (Enter) or dismissed (d). Dismissed findings can be restored (Enter).
+**Views:** Tab cycles active → filtered → dismissed. Active findings can be triaged (Enter), re-audited (r), or followed up (f). Filtered findings can be promoted to active (Enter) or dismissed (d). Dismissed findings can be restored (Enter). Multi-select (Space/a) works in ALL views for batch operations.
+
+**Cached findings:** Previously audited findings from prior sessions reload into the Active view on startup with their full verdict, tool-call history, token usage, and timestamp. The prefilter only rejects test/generated/INFO — it never filters cached verdicts. Press `r` to re-audit.
 
 **Mid-session features:** Ctrl+P switches provider (re-enters setup at provider step). Batch audit via multi-select (Space/a) then Enter. Follow-up asks conversational questions about a verdict.
 
 **Key files:**
-- `src/index.ts` — CLI entry (commander), headless + TUI modes, `--effort`, `-v` flags
-- `src/agent/loop.ts` — `runAgentLoop()` with `streamText`, `prepareStep` (force verdict), `generateObject` fallback for weak models, permission callbacks, error extraction (rate limits, auth)
+- `src/index.ts` — CLI entry (commander), headless + TUI modes, `--effort`, `--no-log` flags (logging on by default)
+- `src/agent/loop.ts` — `runAgentLoop()` returns `AgentLoopResult = { verdict, toolCalls, inputTokens, outputTokens }`. Uses `streamText` + `prepareStep` (force verdict), `generateObject` lenient-schema fallback for weak models, `accumulatedText` backfill for empty tool-call verdict fields, permission callbacks, error extraction (rate limits, auth)
 - `src/agent/follow-up.ts` — `runFollowUp()` for conversational follow-up on verdicts (no tools)
 - `src/agent/tools/` — read (with permission callbacks), grep, glob, bash, verdict tools
 - `src/agent/system-prompt.ts` — system prompt + finding message formatter
 - `src/provider/registry.ts` — multi-provider resolution with optional apiKey/baseUrl
 - `src/provider/reasoning.ts` — unified reasoning effort mapping across providers
 - `src/config/project-config.ts` — `.sast-triage.toml` read/write (`reasoningEffort`, `allowedPaths`, per-provider `savedApiKeys`)
-- `src/logger.ts` — file-based debug logger (`-v` flag writes to `.sast-triage/debug.log`)
-- `src/memory/store.ts` — SQLite via `bun:sqlite` (binary) / `better-sqlite3` (Node)
+- `src/logger.ts` — file-based debug logger, writes to `.sast-triage/debug.log` by default
+- `src/memory/store.ts` — SQLite via `bun:sqlite` (binary) / `better-sqlite3` (Node). `lookupCached()` returns full audit record (verdict + tool_calls + tokens + updated_at). Idempotent schema migrations.
 - `src/models/events.ts` — agent events including `permission_request`, `usage`, `followup_start`
 - `src/models/verdict.ts` — tolerant schema (`key_evidence` accepts string, string[], or JSON-stringified array)
 - `src/parser/semgrep.ts` — parse, fingerprint, classify
-- `src/parser/prefilter.ts` — test/generated/cached/INFO filters
-- `src/ui/app.tsx` — Ink app, three views (active/filtered/dismissed), batch queue, provider switching, follow-up
+- `src/parser/prefilter.ts` — test/generated/INFO filters only (no memory dependency; cached verdicts are completed work, not noise)
+- `src/ui/app.tsx` — Ink app, three views (active/filtered/dismissed), batch queue, provider switching, follow-up. Synthesizes tool_start + verdict + usage events from cached records on startup so AgentPanel renders the full history.
 - `src/ui/components/` — SetupScreen, FindingsTable, AgentPanel (event-partitioned: log + verdict card), Sidebar, FindingDetail, VerdictBanner
 
 ## Conventions
@@ -89,13 +95,16 @@ Built with Ink 6 + React 19 + `fullscreen-ink`. Three-panel layout: findings tab
 - **Agent panel architecture** — events partitioned by type (tool calls, verdict, usage, error) and rendered in fixed layout, not streamed sequentially
 - **Tab characters in tool output** — `\t` counts as 1 char but renders as 8; expand tabs to 4 spaces before truncating
 - **Verdict schema tolerance** — some models (Nemotron, GLM) send `key_evidence` as string or JSON-stringified array `'["a","b"]'`; Zod union handles all shapes
-- **`prepareStep` for forced verdict is model-dependent** — strong models (Claude, GPT-4) comply; weak models (gpt-oss-120b, nemotron) ignore `toolChoice` and generate text. Use `generateObject` fallback in loop.ts to recover verdict from conversation history when no tool call was made.
-- **`generateObject` JSON mode > tool calling** for weak models — provider-native JSON schemas are enforced at the sampling level, tool calling is just a prompt convention
+- **`prepareStep` for forced verdict is model-dependent** — strong models comply; weak models (gpt-oss-120b, nemotron, glm-4.7) ignore `toolChoice`. Two failure modes: (1) no tool call, stream ends → `generateObject` fallback recovers verdict from conversation history; (2) tool call with empty fields → `accumulatedText` backfill from text-delta stream.
+- **Empty verdict fields are filled from `accumulatedText`** — weak models emit `{verdict:"X", reasoning:"", key_evidence:[]}` after writing the analysis as text. The streamed text is buffered and used to backfill empty fields at end-of-stream. Verdict emission is **delayed** until after stream ends for this reason.
+- **Fallback schema must be lenient** — strict Zod constraints (`min(20)`, `min(1)`) cause `generateObject` to throw on weak models that emit only `{verdict:"..."}`, losing even the verdict. Use optional fields + `.describe()` + text-synthesis backfill.
 - **Rate limit detection** — `extractErrorMessage()` in loop.ts walks cause chain, parses HTTP status (429/401/402/5xx) and OpenRouter `metadata.retry_after`
 - **SetupScreen auto-complete** — `useEffect` skips auto-complete when `startStepProp` is set (provider switching)
 - **Read tool metadata footers** — every read ends with `[End of file — N lines total]` or `[Showing lines X-Y of N — use offset=Y+1 to continue]` so the agent knows where it is
 - **Long-line truncation in read** — lines >2000 chars clipped with `… [line truncated, N chars total]` (minified JS, SVG data URIs, base64)
 - **Per-provider key persistence** — `savedApiKeys` on ProjectConfig stores all provider keys; `detectedProviders()` checks env vars OR saved keys
+- **Cached findings include tool calls + tokens + timestamp** — `lookupCached()` returns `{verdict, tool_calls, input_tokens, output_tokens, updated_at}`. App synthesizes `tool_start` + `verdict` + `usage` events on startup so AgentPanel renders the full history for past audits.
+- **`cachedAt` must be cleared on re-audit AND set after fresh audit** — cleared in `reauditCurrent` + `triageIndex` to avoid showing stale timestamp during "Investigating..."; then set to `new Date().toISOString()` after `memory.store()` completes.
 
 ## Where to Look
 
