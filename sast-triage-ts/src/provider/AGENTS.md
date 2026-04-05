@@ -4,8 +4,10 @@ Multi-provider LLM resolution via AI SDK v5.
 
 ## Key Files
 
-- `registry.ts` — `resolveProvider(provider, model, apiKey?, baseUrl?)` returns AI SDK model instance. `SUPPORTED_PROVIDERS` list. `detectedProviders()` checks env vars for key availability.
+- `registry.ts` — `resolveProvider(provider, model, apiKey?, baseUrl?)` returns AI SDK model instance. `SUPPORTED_PROVIDERS` list.
 - `reasoning.ts` — `resolveProviderOptions(provider, effort)` maps `"low"|"medium"|"high"` to provider-specific `providerOptions`.
+
+Key availability detection lives in `config/project-config.ts` → `detectedProviders()`, which checks env vars AND saved keys in `.sast-triage.toml`.
 
 ## Provider Resolution
 

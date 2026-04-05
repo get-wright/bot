@@ -13,7 +13,7 @@ The LLM drives its own investigation via read/grep/glob/bash tools and delivers 
 ```bash
 cd sast-triage-ts
 npm install                                # install deps
-npx vitest run                             # all tests (107, ~0.7s, no network)
+npx vitest run                             # all tests (111, ~0.7s, no network)
 npx tsc --noEmit                           # type check
 bun build src/index.ts --compile --outfile sast-triage  # compile binary
 ./sast-triage                              # interactive TUI
@@ -30,7 +30,8 @@ Semgrep JSON → Parser → Pre-filter → Agent Loop (LLM + tools) → Verdict 
                          test files,    read/grep/glob/bash      → SQLite cache
                          generated,     doom loop detection
                          cached,        prepareStep (force verdict)
-                         INFO sev       providerOptions (reasoning)
+                         INFO sev       generateObject fallback
+                                        providerOptions (reasoning)
                                         permission callbacks
 ```
 
@@ -52,21 +53,21 @@ Built with Ink 6 + React 19 + `fullscreen-ink`. Three-panel layout: findings tab
 
 **Key files:**
 - `src/index.ts` — CLI entry (commander), headless + TUI modes, `--effort`, `-v` flags
-- `src/agent/loop.ts` — `runAgentLoop()` with `streamText`, `prepareStep` (force verdict), permission callbacks, error extraction (rate limits, auth)
+- `src/agent/loop.ts` — `runAgentLoop()` with `streamText`, `prepareStep` (force verdict), `generateObject` fallback for weak models, permission callbacks, error extraction (rate limits, auth)
 - `src/agent/follow-up.ts` — `runFollowUp()` for conversational follow-up on verdicts (no tools)
 - `src/agent/tools/` — read (with permission callbacks), grep, glob, bash, verdict tools
 - `src/agent/system-prompt.ts` — system prompt + finding message formatter
 - `src/provider/registry.ts` — multi-provider resolution with optional apiKey/baseUrl
 - `src/provider/reasoning.ts` — unified reasoning effort mapping across providers
-- `src/config/project-config.ts` — `.sast-triage.toml` read/write (`reasoningEffort`, `allowedPaths`)
+- `src/config/project-config.ts` — `.sast-triage.toml` read/write (`reasoningEffort`, `allowedPaths`, per-provider `savedApiKeys`)
 - `src/logger.ts` — file-based debug logger (`-v` flag writes to `.sast-triage/debug.log`)
 - `src/memory/store.ts` — SQLite via `bun:sqlite` (binary) / `better-sqlite3` (Node)
 - `src/models/events.ts` — agent events including `permission_request`, `usage`, `followup_start`
-- `src/models/verdict.ts` — tolerant schema (`key_evidence` accepts string or string[])
+- `src/models/verdict.ts` — tolerant schema (`key_evidence` accepts string, string[], or JSON-stringified array)
 - `src/parser/semgrep.ts` — parse, fingerprint, classify
 - `src/parser/prefilter.ts` — test/generated/cached/INFO filters
 - `src/ui/app.tsx` — Ink app, three views (active/filtered/dismissed), batch queue, provider switching, follow-up
-- `src/ui/components/` — SetupScreen, FindingsTable, AgentPanel, Sidebar, FindingDetail, VerdictBanner
+- `src/ui/components/` — SetupScreen, FindingsTable, AgentPanel (event-partitioned: log + verdict card), Sidebar, FindingDetail, VerdictBanner
 
 ## Conventions
 
@@ -82,14 +83,19 @@ Built with Ink 6 + React 19 + `fullscreen-ink`. Three-panel layout: findings tab
 - **OpenRouter must use `.chat(model)`** not `provider(model)` — the default hits the Responses API (`/responses`) which OpenRouter doesn't support
 - **`bun:sqlite` vs `better-sqlite3`** — runtime detection via `typeof globalThis.Bun`. Binary uses bun:sqlite, vitest uses better-sqlite3.
 - **`react-devtools-core` stub needed** for bun binary builds — Ink imports it optionally
-- **Thinking tokens arrive word-by-word** — must collapse consecutive thinking events into paragraphs, show first line only (some models echo tool results in thinking)
+- **Thinking text fully suppressed in agent panel** — models echo tool output/markdown in thinking, it's noise; investigation log shows only tool calls
 - **`overflow="hidden"`** required on all Ink Box panels to prevent content overflow
-- **Ink `<Text>` in fragments renders inline** — always wrap in `<Box>` for block-level layout (the `L` component in agent-panel)
+- **Ink `<Text>` in fragments renders inline** — always wrap in `<Box>` for block-level layout
+- **Agent panel architecture** — events partitioned by type (tool calls, verdict, usage, error) and rendered in fixed layout, not streamed sequentially
 - **Tab characters in tool output** — `\t` counts as 1 char but renders as 8; expand tabs to 4 spaces before truncating
-- **Verdict schema tolerance** — some models (Nemotron, GLM) send `key_evidence` as string instead of array; Zod union handles both
-- **`prepareStep` for forced verdict** — warns agent on step N-2, forces verdict-only on step N-1; guard with `if (finalVerdict) return` to avoid redundant calls
+- **Verdict schema tolerance** — some models (Nemotron, GLM) send `key_evidence` as string or JSON-stringified array `'["a","b"]'`; Zod union handles all shapes
+- **`prepareStep` for forced verdict is model-dependent** — strong models (Claude, GPT-4) comply; weak models (gpt-oss-120b, nemotron) ignore `toolChoice` and generate text. Use `generateObject` fallback in loop.ts to recover verdict from conversation history when no tool call was made.
+- **`generateObject` JSON mode > tool calling** for weak models — provider-native JSON schemas are enforced at the sampling level, tool calling is just a prompt convention
 - **Rate limit detection** — `extractErrorMessage()` in loop.ts walks cause chain, parses HTTP status (429/401/402/5xx) and OpenRouter `metadata.retry_after`
 - **SetupScreen auto-complete** — `useEffect` skips auto-complete when `startStepProp` is set (provider switching)
+- **Read tool metadata footers** — every read ends with `[End of file — N lines total]` or `[Showing lines X-Y of N — use offset=Y+1 to continue]` so the agent knows where it is
+- **Long-line truncation in read** — lines >2000 chars clipped with `… [line truncated, N chars total]` (minified JS, SVG data URIs, base64)
+- **Per-provider key persistence** — `savedApiKeys` on ProjectConfig stores all provider keys; `detectedProviders()` checks env vars OR saved keys
 
 ## Where to Look
 
