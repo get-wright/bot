@@ -146,6 +146,8 @@ async function runHeadless(config: AppConfig, projectConfig: ProjectConfig): Pro
       path: finding.path,
       verdict: verdict.verdict,
       reasoning: verdict.reasoning,
+      key_evidence: verdict.key_evidence,
+      suggested_fix: verdict.suggested_fix,
     });
   }
 

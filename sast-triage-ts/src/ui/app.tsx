@@ -153,6 +153,8 @@ function MainScreen({
         path: state.finding.path,
         verdict: verdict.verdict,
         reasoning: verdict.reasoning,
+        key_evidence: verdict.key_evidence,
+        suggested_fix: verdict.suggested_fix,
       });
 
       setFindingStates((prev) =>
