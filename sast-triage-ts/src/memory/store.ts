@@ -1,6 +1,8 @@
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import type { MemoryLookup } from "../parser/prefilter.js";
+import { VerdictValue } from "../models/verdict.js";
+import type { TriageVerdict } from "../models/verdict.js";
 
 export interface TriageRecord {
   fingerprint: string;
@@ -8,6 +10,8 @@ export interface TriageRecord {
   path: string;
   verdict: string;
   reasoning: string;
+  key_evidence: string[];
+  suggested_fix?: string;
   created_at?: string;
   updated_at?: string;
 }
@@ -18,6 +22,8 @@ export interface StoreInput {
   path: string;
   verdict: string;
   reasoning: string;
+  key_evidence: string[];
+  suggested_fix?: string;
 }
 
 interface DbAdapter {
@@ -73,10 +79,21 @@ export class MemoryStore {
         path TEXT NOT NULL,
         verdict TEXT NOT NULL,
         reasoning TEXT NOT NULL,
+        key_evidence TEXT NOT NULL DEFAULT '[]',
+        suggested_fix TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       )
     `);
+    // Migration: add columns to existing databases (idempotent)
+    const cols = this.db.all("PRAGMA table_info(triage_records)") as Array<{ name: string }>;
+    const names = new Set(cols.map((c) => c.name));
+    if (!names.has("key_evidence")) {
+      this.db.run("ALTER TABLE triage_records ADD COLUMN key_evidence TEXT NOT NULL DEFAULT '[]'");
+    }
+    if (!names.has("suggested_fix")) {
+      this.db.run("ALTER TABLE triage_records ADD COLUMN suggested_fix TEXT");
+    }
   }
 
   lookup(fingerprint: string): TriageRecord | null {
@@ -90,15 +107,41 @@ export class MemoryStore {
 
   store(input: StoreInput): void {
     const now = new Date().toISOString();
+    const evidenceJson = JSON.stringify(input.key_evidence);
     this.db.run(
-      `INSERT INTO triage_records (fingerprint, check_id, path, verdict, reasoning, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO triage_records (fingerprint, check_id, path, verdict, reasoning, key_evidence, suggested_fix, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(fingerprint) DO UPDATE SET
          verdict = excluded.verdict,
          reasoning = excluded.reasoning,
+         key_evidence = excluded.key_evidence,
+         suggested_fix = excluded.suggested_fix,
          updated_at = excluded.updated_at`,
-      input.fingerprint, input.check_id, input.path, input.verdict, input.reasoning, now, now,
+      input.fingerprint, input.check_id, input.path, input.verdict, input.reasoning,
+      evidenceJson, input.suggested_fix ?? null, now, now,
     );
+  }
+
+  /** Returns the full verdict reconstructed from the record, or null if not found. */
+  lookupVerdict(fingerprint: string): TriageVerdict | null {
+    const row = this.db.get(
+      "SELECT verdict, reasoning, key_evidence, suggested_fix FROM triage_records WHERE fingerprint = ?",
+      fingerprint,
+    ) as { verdict: string; reasoning: string; key_evidence: string; suggested_fix: string | null } | undefined;
+    if (!row) return null;
+    const verdictParse = VerdictValue.safeParse(row.verdict);
+    if (!verdictParse.success) return null;
+    let evidence: string[] = [];
+    try {
+      const parsed = JSON.parse(row.key_evidence);
+      if (Array.isArray(parsed)) evidence = parsed.map(String);
+    } catch { /* corrupted JSON — return empty */ }
+    return {
+      verdict: verdictParse.data,
+      reasoning: row.reasoning,
+      key_evidence: evidence,
+      suggested_fix: row.suggested_fix ?? undefined,
+    };
   }
 
   getHints(checkId: string, fingerprint: string): string[] {
