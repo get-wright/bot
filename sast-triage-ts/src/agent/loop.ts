@@ -1,4 +1,6 @@
 import { streamText, stepCountIs, generateObject } from "ai";
+import { z } from "zod";
+import { VerdictValue } from "../models/verdict.js";
 import type { Finding } from "../models/finding.js";
 import type { TriageVerdict } from "../models/verdict.js";
 import type { AgentEvent } from "../models/events.js";
@@ -246,12 +248,20 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<TriageVerdi
   if (!finalVerdict) {
     // Weak models often ignore toolChoice and generate text instead.
     // Fall back to generateObject (JSON mode) which has better compliance.
+    // Use a stricter schema here (no defaults) to force the model to emit
+    // reasoning and evidence — otherwise weak models emit just {verdict: "..."}.
     log.warn("agent", "No verdict from tool call — attempting generateObject fallback");
+    const FallbackSchema = z.object({
+      verdict: VerdictValue,
+      reasoning: z.string().min(20).describe("Detailed explanation of the verdict referencing specific code lines and data flow"),
+      key_evidence: z.array(z.string()).min(1).describe("Specific evidence items (line numbers, code patterns, framework protections) that support the verdict"),
+      suggested_fix: z.string().optional().describe("Concrete fix suggestion if applicable"),
+    });
     try {
       const responseMessages = (await result.response).messages;
       const { object } = await generateObject({
         model: languageModel,
-        schema: TriageVerdictSchema,
+        schema: FallbackSchema,
         providerOptions,
         system: systemPrompt,
         messages: [
@@ -260,14 +270,20 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<TriageVerdi
           {
             role: "user",
             content:
-              "Based on your investigation above, deliver your final verdict as a JSON object " +
-              "with fields: verdict (true_positive|false_positive|needs_review), reasoning (string), " +
-              "key_evidence (array of strings), suggested_fix (string, optional).",
+              "Based on your investigation above, deliver your final verdict. You MUST populate " +
+              "ALL fields with substantive content: verdict, reasoning (explain your analysis in " +
+              "detail with specific line numbers and code references), key_evidence (list 2-4 " +
+              "specific evidence items from the code you investigated), and suggested_fix if " +
+              "applicable. Do not return a partial or empty verdict.",
           },
         ],
       });
       finalVerdict = object;
-      log.info("agent", "Verdict recovered via generateObject fallback", { verdict: finalVerdict.verdict });
+      log.info("agent", "Verdict recovered via generateObject fallback", {
+        verdict: finalVerdict.verdict,
+        reasoning: finalVerdict.reasoning.slice(0, 100),
+        evidenceCount: finalVerdict.key_evidence.length,
+      });
       onEvent({ type: "verdict", verdict: finalVerdict });
     } catch (err) {
       log.warn("agent", `generateObject fallback failed: ${err instanceof Error ? err.message : String(err)}`);
