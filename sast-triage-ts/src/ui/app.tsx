@@ -537,7 +537,7 @@ function MainScreen({
         <Box width={sidebarWidth} flexDirection="column" borderStyle="single" overflow="hidden">
           <Sidebar
             total={totalCount}
-            active={findings.length}
+            active={findingStates.filter((s) => !s.verdict).length}
             filtered={filteredFindings.length}
             triaged={triaged}
             tp={findingStates.filter((s) => s.verdict?.verdict === "true_positive").length}
@@ -655,7 +655,7 @@ function App({
       setTotalCount(allFindings.length);
       setScreen("main");
     },
-    [initialConfig, memory, switchingProvider, projectConfig],
+    [initialConfig, switchingProvider, projectConfig],
   );
 
   if (screen === "setup") {
