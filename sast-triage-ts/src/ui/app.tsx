@@ -186,10 +186,11 @@ function MainScreen({
         output_tokens: result.outputTokens,
       });
 
+      const cachedAt = new Date().toISOString();
       setFindingStates((prev) =>
         prev.map((s, i) =>
           i === idx
-            ? { ...s, verdict, entry: { ...s.entry, status: verdict.verdict as FindingStatus } }
+            ? { ...s, verdict, cachedAt, entry: { ...s.entry, status: verdict.verdict as FindingStatus } }
             : s,
         ),
       );
