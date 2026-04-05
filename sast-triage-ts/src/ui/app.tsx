@@ -483,16 +483,18 @@ function MainScreen({
             </Box>
             {(viewMode === "filtered" ? filteredFindings : dismissedFindings).map((item, i) => {
               const isSelected = i === selectedIndex;
+              const isMultiSelected = selectedIndices.has(i);
               const fp = `${viewMode}-${item.finding.check_id}-${item.finding.path}-${item.finding.start.line}`;
               const fileLine = `${item.finding.path}:${item.finding.start.line}`;
               const rule = item.finding.check_id.split(".").pop() ?? "";
-              const cw = tableWidth - 4; // padding
+              const cw = tableWidth - 6; // padding + marker
               const line = `${fileLine} ${rule}`;
               const clipped = line.length > cw ? line.slice(0, cw - 1) + "…" : line;
+              const marker = isMultiSelected ? "●" : " ";
               return (
                 <Box key={fp}>
                   <Text dimColor={!isSelected}>
-                    {isSelected ? "> " : "  "}{clipped}
+                    {isSelected ? ">" : " "}{marker} {clipped}
                   </Text>
                 </Box>
               );
