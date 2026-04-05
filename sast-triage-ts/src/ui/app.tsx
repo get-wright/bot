@@ -131,7 +131,7 @@ function MainScreen({
       setFindingStates((prev) =>
         prev.map((s, i) =>
           i === idx
-            ? { ...s, entry: { ...s.entry, status: "in_progress" as FindingStatus }, events: [] }
+            ? { ...s, cachedAt: undefined, entry: { ...s.entry, status: "in_progress" as FindingStatus }, events: [] }
             : s,
         ),
       );
@@ -229,7 +229,7 @@ function MainScreen({
     setFindingStates((prev) =>
       prev.map((s, i) =>
         i === selectedIndex
-          ? { ...s, verdict: undefined, events: [], entry: { ...s.entry, status: "pending" as FindingStatus } }
+          ? { ...s, verdict: undefined, cachedAt: undefined, events: [], entry: { ...s.entry, status: "pending" as FindingStatus } }
           : s,
       ),
     );
