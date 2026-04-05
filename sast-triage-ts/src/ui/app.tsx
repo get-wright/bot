@@ -69,17 +69,22 @@ function MainScreen({
   const [filteredFindings, setFilteredFindings] = useState(initialFilteredFindings);
   const [dismissedFindings, setDismissedFindings] = useState<{ finding: Finding; reason: string }[]>([]);
   const [findingStates, setFindingStates] = useState<FindingState[]>(() =>
-    findings.map((f) => ({
-      entry: {
-        fingerprint: fingerprintFinding(f),
-        ruleId: f.check_id,
-        fileLine: `${f.path}:${f.start.line}`,
-        severity: f.extra.severity,
-        status: "pending" as FindingStatus,
-      },
-      finding: f,
-      events: [],
-    })),
+    findings.map((f) => {
+      const fp = fingerprintFinding(f);
+      const cachedVerdict = memory.lookupVerdict(fp);
+      return {
+        entry: {
+          fingerprint: fp,
+          ruleId: f.check_id,
+          fileLine: `${f.path}:${f.start.line}`,
+          severity: f.extra.severity,
+          status: (cachedVerdict?.verdict ?? "pending") as FindingStatus,
+        },
+        finding: f,
+        events: [],
+        verdict: cachedVerdict ?? undefined,
+      };
+    }),
   );
   const [isTriaging, setIsTriaging] = useState(false);
   const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
