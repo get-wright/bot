@@ -267,40 +267,55 @@ function MainScreen({
     }
   }, []);
 
-  // Promote a filtered finding to active and start triaging it
-  const promoteFiltered = useCallback(async () => {
-    if (isTriaging || viewMode !== "filtered") return;
-    const item = filteredFindings[selectedIndex];
-    if (!item) return;
+  // Promote selected filtered findings to active and triage them sequentially
+  const promoteFilteredBatch = useCallback(async (indices: number[]) => {
+    if (isTriaging || viewMode !== "filtered" || indices.length === 0) return;
+    const sorted = [...indices].sort((a, b) => a - b);
+    const itemsToPromote = sorted.map((i) => filteredFindings[i]).filter((item): item is { finding: Finding; reason: string } => item != null);
+    if (itemsToPromote.length === 0) return;
 
-    const f = item.finding;
-    const newState: FindingState = {
-      entry: {
-        fingerprint: fingerprintFinding(f),
-        ruleId: f.check_id,
-        fileLine: `${f.path}:${f.start.line}`,
-        severity: f.extra.severity,
-        status: "pending" as FindingStatus,
-      },
-      finding: f,
-      events: [],
-    };
+    const newStates: FindingState[] = itemsToPromote.map((item) => {
+      const f = item.finding;
+      return {
+        entry: {
+          fingerprint: fingerprintFinding(f),
+          ruleId: f.check_id,
+          fileLine: `${f.path}:${f.start.line}`,
+          severity: f.extra.severity,
+          status: "pending" as FindingStatus,
+        },
+        finding: f,
+        events: [],
+      };
+    });
 
-    // Remove from filtered, add to active
-    setFilteredFindings((prev) => prev.filter((_, i) => i !== selectedIndex));
-    setFindingStates((prev) => [...prev, newState]);
-    if (selectedIndex >= filteredFindings.length - 1) {
-      setSelectedIndex(Math.max(0, selectedIndex - 1));
-    }
+    const startIdx = findingStates.length;
+    const newIndices = newStates.map((_, i) => startIdx + i);
 
-    // Switch to active view and triage the new finding
-    const newIdx = findingStates.length; // it'll be appended at the end
+    // Remove promoted from filtered, append to active
+    setFilteredFindings((prev) => prev.filter((_, i) => !sorted.includes(i)));
+    setFindingStates((prev) => [...prev, ...newStates]);
+    setSelectedIndices(new Set());
     setViewMode("active");
-    setSelectedIndex(newIdx);
+    setSelectedIndex(startIdx);
+
+    // Triage all newly-promoted findings
     setIsTriaging(true);
-    await triageIndex(newIdx);
+    stopQueueRef.current = false;
+    setQueueState({ items: newIndices, currentIndex: 0, isRunning: true });
+    for (let qi = 0; qi < newIndices.length; qi++) {
+      if (stopQueueRef.current) break;
+      setQueueState({ items: newIndices, currentIndex: qi, isRunning: true });
+      await triageIndex(newIndices[qi]!);
+    }
+    setQueueState(null);
     setIsTriaging(false);
-  }, [isTriaging, viewMode, filteredFindings, selectedIndex, findingStates.length, triageIndex]);
+  }, [isTriaging, viewMode, filteredFindings, findingStates.length, triageIndex]);
+
+  // Promote a single filtered finding (fallback when no selection)
+  const promoteFiltered = useCallback(async () => {
+    await promoteFilteredBatch([selectedIndex]);
+  }, [selectedIndex, promoteFilteredBatch]);
 
   // Dismiss a filtered finding (move to dismissed list)
   const dismissFiltered = useCallback(() => {
@@ -314,17 +329,23 @@ function MainScreen({
     }
   }, [viewMode, selectedIndex, filteredFindings]);
 
-  // Restore a dismissed finding back to filtered
-  const restoreDismissed = useCallback(() => {
-    if (viewMode !== "dismissed") return;
-    const item = dismissedFindings[selectedIndex];
-    if (!item) return;
-    setFilteredFindings((prev) => [...prev, item]);
-    setDismissedFindings((prev) => prev.filter((_, i) => i !== selectedIndex));
-    if (selectedIndex >= dismissedFindings.length - 1) {
-      setSelectedIndex(Math.max(0, selectedIndex - 1));
+  // Restore selected dismissed findings back to filtered
+  const restoreDismissedBatch = useCallback((indices: number[]) => {
+    if (viewMode !== "dismissed" || indices.length === 0) return;
+    const sorted = [...indices].sort((a, b) => a - b);
+    const items = sorted.map((i) => dismissedFindings[i]).filter((item): item is { finding: Finding; reason: string } => item != null);
+    if (items.length === 0) return;
+    setFilteredFindings((prev) => [...prev, ...items]);
+    setDismissedFindings((prev) => prev.filter((_, i) => !sorted.includes(i)));
+    setSelectedIndices(new Set());
+    if (selectedIndex >= dismissedFindings.length - items.length) {
+      setSelectedIndex(Math.max(0, dismissedFindings.length - items.length - 1));
     }
   }, [viewMode, selectedIndex, dismissedFindings]);
+
+  const restoreDismissed = useCallback(() => {
+    restoreDismissedBatch([selectedIndex]);
+  }, [selectedIndex, restoreDismissedBatch]);
 
   const listLength = viewMode === "active"
     ? findingStates.length
@@ -353,13 +374,14 @@ function MainScreen({
       const next = views[(views.indexOf(viewMode) + 1) % views.length]!;
       setViewMode(next);
       setSelectedIndex(0);
+      setSelectedIndices(new Set());
       return;
     }
     if (key.upArrow && selectedIndex > 0) setSelectedIndex(selectedIndex - 1);
     if (key.downArrow && selectedIndex < listLength - 1) setSelectedIndex(selectedIndex + 1);
 
-    // Space: toggle selection
-    if (input === " " && viewMode === "active" && !isTriaging) {
+    // Space: toggle selection (works in all views)
+    if (input === " " && !isTriaging) {
       setSelectedIndices((prev) => {
         const next = new Set(prev);
         if (next.has(selectedIndex)) next.delete(selectedIndex);
@@ -369,9 +391,15 @@ function MainScreen({
       return;
     }
 
-    // a: select all
-    if (input === "a" && viewMode === "active" && !isTriaging) {
-      setSelectedIndices(new Set(findingStates.map((_, i) => i).filter((i) => !findingStates[i]!.verdict)));
+    // a: select all (view-aware)
+    if (input === "a" && !isTriaging) {
+      if (viewMode === "active") {
+        setSelectedIndices(new Set(findingStates.map((_, i) => i).filter((i) => !findingStates[i]!.verdict)));
+      } else if (viewMode === "filtered") {
+        setSelectedIndices(new Set(filteredFindings.map((_, i) => i)));
+      } else if (viewMode === "dismissed") {
+        setSelectedIndices(new Set(dismissedFindings.map((_, i) => i)));
+      }
       return;
     }
 
@@ -383,9 +411,15 @@ function MainScreen({
           : [selectedIndex];
         startBatchQueue(indices);
       } else if (viewMode === "filtered") {
-        promoteFiltered();
+        const indices = selectedIndices.size > 0
+          ? [...selectedIndices].sort((a, b) => a - b)
+          : [selectedIndex];
+        promoteFilteredBatch(indices);
       } else if (viewMode === "dismissed") {
-        restoreDismissed();
+        const indices = selectedIndices.size > 0
+          ? [...selectedIndices].sort((a, b) => a - b)
+          : [selectedIndex];
+        restoreDismissedBatch(indices);
       }
       return;
     }
