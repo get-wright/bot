@@ -72,6 +72,11 @@ function MainScreen({
     findings.map((f) => {
       const fp = fingerprintFinding(f);
       const cachedVerdict = memory.lookupVerdict(fp);
+      // Synthesize a verdict event for cached findings so the AgentPanel
+      // renders the verdict card instead of the empty-state message.
+      const events: AgentEvent[] = cachedVerdict
+        ? [{ type: "verdict", verdict: cachedVerdict }]
+        : [];
       return {
         entry: {
           fingerprint: fp,
@@ -81,7 +86,7 @@ function MainScreen({
           status: (cachedVerdict?.verdict ?? "pending") as FindingStatus,
         },
         finding: f,
-        events: [],
+        events,
         verdict: cachedVerdict ?? undefined,
       };
     }),
