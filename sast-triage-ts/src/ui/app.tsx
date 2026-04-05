@@ -44,6 +44,7 @@ interface FindingState {
   finding: Finding;
   events: AgentEvent[];
   verdict?: TriageVerdict;
+  cachedAt?: string;
 }
 
 function MainScreen({
@@ -71,23 +72,37 @@ function MainScreen({
   const [findingStates, setFindingStates] = useState<FindingState[]>(() =>
     findings.map((f) => {
       const fp = fingerprintFinding(f);
-      const cachedVerdict = memory.lookupVerdict(fp);
-      // Synthesize a verdict event for cached findings so the AgentPanel
-      // renders the verdict card instead of the empty-state message.
-      const events: AgentEvent[] = cachedVerdict
-        ? [{ type: "verdict", verdict: cachedVerdict }]
-        : [];
+      const cached = memory.lookupCached(fp);
+      // Synthesize events for cached findings so the AgentPanel renders the
+      // full audit context (tool calls, verdict, token usage) from persisted
+      // data — not just the empty-state message.
+      const events: AgentEvent[] = [];
+      if (cached) {
+        for (const tc of cached.tool_calls) {
+          events.push({ type: "tool_start", tool: tc.tool, args: tc.args });
+        }
+        events.push({ type: "verdict", verdict: cached.verdict });
+        if (cached.input_tokens > 0 || cached.output_tokens > 0) {
+          events.push({
+            type: "usage",
+            inputTokens: cached.input_tokens,
+            outputTokens: cached.output_tokens,
+            totalTokens: cached.input_tokens + cached.output_tokens,
+          });
+        }
+      }
       return {
         entry: {
           fingerprint: fp,
           ruleId: f.check_id,
           fileLine: `${f.path}:${f.start.line}`,
           severity: f.extra.severity,
-          status: (cachedVerdict?.verdict ?? "pending") as FindingStatus,
+          status: (cached?.verdict.verdict ?? "pending") as FindingStatus,
         },
         finding: f,
         events,
-        verdict: cachedVerdict ?? undefined,
+        verdict: cached?.verdict,
+        cachedAt: cached?.updated_at,
       };
     }),
   );
@@ -126,7 +141,7 @@ function MainScreen({
       const fp = state.entry.fingerprint;
       const memoryHints = memory.getHints(state.finding.check_id, fp);
 
-      const verdict = await runAgentLoop({
+      const result = await runAgentLoop({
         finding: state.finding,
         projectRoot: process.cwd(),
         provider: config.provider,
@@ -157,6 +172,7 @@ function MainScreen({
         allowedPaths: config.allowedPaths,
       });
 
+      const verdict = result.verdict;
       memory.store({
         fingerprint: fp,
         check_id: state.finding.check_id,
@@ -165,6 +181,9 @@ function MainScreen({
         reasoning: verdict.reasoning,
         key_evidence: verdict.key_evidence,
         suggested_fix: verdict.suggested_fix,
+        tool_calls: result.toolCalls,
+        input_tokens: result.inputTokens,
+        output_tokens: result.outputTokens,
       });
 
       setFindingStates((prev) =>
@@ -533,6 +552,7 @@ function MainScreen({
             showFollowUpInput={showFollowUp}
             onFollowUp={handleFollowUp}
             onPermissionResolve={handlePermissionResolve}
+            cachedAt={selected.cachedAt}
           />
         ) : (
           <Text>Select a finding and press Enter to investigate.</Text>

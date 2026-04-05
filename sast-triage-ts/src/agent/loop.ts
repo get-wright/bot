@@ -29,6 +29,13 @@ export interface AgentLoopConfig {
   allowedPaths?: string[];
 }
 
+export interface AgentLoopResult {
+  verdict: TriageVerdict;
+  toolCalls: { tool: string; args: Record<string, unknown> }[];
+  inputTokens: number;
+  outputTokens: number;
+}
+
 /** Extract the most useful error message, digging into cause chains.
  *  Detects rate limits (429), auth errors (401/403), and provider-specific errors. */
 function extractErrorMessage(err: unknown): string {
@@ -93,7 +100,7 @@ function extractErrorMessage(err: unknown): string {
   return msg;
 }
 
-export async function runAgentLoop(config: AgentLoopConfig): Promise<TriageVerdict> {
+export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopResult> {
   const { finding, projectRoot, provider, model: modelId, maxSteps, allowBash, onEvent, memoryHints } = config;
 
   log.info("agent", `Starting triage: ${finding.check_id} at ${finding.path}:${finding.start.line}`);
@@ -132,6 +139,11 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<TriageVerdi
   // Capture the model's text output during investigation — used as reasoning
   // fallback if the model returns a partial verdict from generateObject.
   let accumulatedText = "";
+  // Capture tool calls and token usage for persistence, so cached findings
+  // can show what was read and how many tokens were used.
+  const capturedToolCalls: { tool: string; args: Record<string, unknown> }[] = [];
+  let capturedInputTokens = 0;
+  let capturedOutputTokens = 0;
 
   const systemPromptParts = [SYSTEM_PROMPT];
   if (memoryHints.length > 0) {
@@ -197,6 +209,9 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<TriageVerdi
             } catch {
               onEvent({ type: "error", message: "Invalid verdict format from LLM" });
             }
+          } else {
+            // Capture non-verdict tool calls for persistence.
+            capturedToolCalls.push({ tool: toolName, args });
           }
           break;
         }
@@ -264,10 +279,12 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<TriageVerdi
   // Emit token usage
   try {
     const totalUsage = await result.totalUsage;
+    capturedInputTokens = totalUsage.inputTokens ?? 0;
+    capturedOutputTokens = totalUsage.outputTokens ?? 0;
     onEvent({
       type: "usage",
-      inputTokens: totalUsage.inputTokens ?? 0,
-      outputTokens: totalUsage.outputTokens ?? 0,
+      inputTokens: capturedInputTokens,
+      outputTokens: capturedOutputTokens,
       totalTokens: totalUsage.totalTokens ?? 0,
       reasoningTokens: (totalUsage as Record<string, unknown>).reasoningTokens as number | undefined,
       cachedInputTokens: (totalUsage as Record<string, unknown>).cachedInputTokens as number | undefined,
@@ -345,5 +362,10 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<TriageVerdi
   }
 
   log.info("agent", `Verdict: ${finalVerdict.verdict}`, { reasoning: finalVerdict.reasoning.slice(0, 200) });
-  return finalVerdict;
+  return {
+    verdict: finalVerdict,
+    toolCalls: capturedToolCalls,
+    inputTokens: capturedInputTokens,
+    outputTokens: capturedOutputTokens,
+  };
 }

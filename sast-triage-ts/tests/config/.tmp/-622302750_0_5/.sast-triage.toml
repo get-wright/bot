@@ -1,0 +1,8 @@
+[provider]
+name = "openai"
+model = "o3-mini"
+reasoning_effort = "low"
+
+[memory]
+db_path = ".sast-triage/memory.db"
+

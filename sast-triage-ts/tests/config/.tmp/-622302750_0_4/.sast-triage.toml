@@ -1,0 +1,7 @@
+[provider]
+name = "openai"
+model = "gpt-4o"
+
+[memory]
+db_path = ".sast-triage/memory.db"
+

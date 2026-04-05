@@ -63,9 +63,18 @@ function formatToolCall(tool: string, args: Record<string, unknown>): { name: st
 
 // --- Main component ---
 
+function formatTimestamp(iso: string): string {
+  try {
+    const d = new Date(iso);
+    return d.toLocaleString(undefined, { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  } catch {
+    return iso;
+  }
+}
+
 export function AgentPanel({
   events, isActive, width,
-  showFollowUpInput, onFollowUp, onPermissionResolve,
+  showFollowUpInput, onFollowUp, onPermissionResolve, cachedAt,
 }: {
   events: AgentEvent[];
   isActive: boolean;
@@ -73,6 +82,7 @@ export function AgentPanel({
   showFollowUpInput?: boolean;
   onFollowUp?: (question: string) => void;
   onPermissionResolve?: (decision: "once" | "always" | "deny") => void;
+  cachedAt?: string;
 }) {
   const [followUpText, setFollowUpText] = useState("");
   const w = width - 2;
@@ -118,6 +128,13 @@ export function AgentPanel({
 
   return (
     <Box flexDirection="column" padding={1} overflow="hidden">
+      {/* Cached-at timestamp — shown only for previously audited findings */}
+      {cachedAt && (
+        <Box marginBottom={1}>
+          <Text dimColor italic>  audited {formatTimestamp(cachedAt)}</Text>
+        </Box>
+      )}
+
       {/* Investigation log — compact tool calls */}
       {toolCalls.map((tc, i) => (
         <Box key={`t${i}`}>

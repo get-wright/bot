@@ -123,7 +123,7 @@ async function runHeadless(config: AppConfig, projectConfig: ProjectConfig): Pro
       console.log(JSON.stringify({ ...event, fingerprint: fp }));
     };
 
-    const verdict = await runAgentLoop({
+    const result = await runAgentLoop({
       finding,
       projectRoot: process.cwd(),
       provider: config.provider,
@@ -142,10 +142,13 @@ async function runHeadless(config: AppConfig, projectConfig: ProjectConfig): Pro
       fingerprint: fp,
       check_id: finding.check_id,
       path: finding.path,
-      verdict: verdict.verdict,
-      reasoning: verdict.reasoning,
-      key_evidence: verdict.key_evidence,
-      suggested_fix: verdict.suggested_fix,
+      verdict: result.verdict.verdict,
+      reasoning: result.verdict.reasoning,
+      key_evidence: result.verdict.key_evidence,
+      suggested_fix: result.verdict.suggested_fix,
+      tool_calls: result.toolCalls,
+      input_tokens: result.inputTokens,
+      output_tokens: result.outputTokens,
     });
   }
 

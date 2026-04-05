@@ -3,6 +3,11 @@ import { dirname } from "node:path";
 import { VerdictValue } from "../models/verdict.js";
 import type { TriageVerdict } from "../models/verdict.js";
 
+export interface StoredToolCall {
+  tool: string;
+  args: Record<string, unknown>;
+}
+
 export interface TriageRecord {
   fingerprint: string;
   check_id: string;
@@ -23,6 +28,17 @@ export interface StoreInput {
   reasoning: string;
   key_evidence: string[];
   suggested_fix?: string;
+  tool_calls?: StoredToolCall[];
+  input_tokens?: number;
+  output_tokens?: number;
+}
+
+export interface CachedRecord {
+  verdict: TriageVerdict;
+  tool_calls: StoredToolCall[];
+  input_tokens: number;
+  output_tokens: number;
+  updated_at: string;
 }
 
 interface DbAdapter {
@@ -93,6 +109,15 @@ export class MemoryStore {
     if (!names.has("suggested_fix")) {
       this.db.run("ALTER TABLE triage_records ADD COLUMN suggested_fix TEXT");
     }
+    if (!names.has("tool_calls")) {
+      this.db.run("ALTER TABLE triage_records ADD COLUMN tool_calls TEXT NOT NULL DEFAULT '[]'");
+    }
+    if (!names.has("input_tokens")) {
+      this.db.run("ALTER TABLE triage_records ADD COLUMN input_tokens INTEGER NOT NULL DEFAULT 0");
+    }
+    if (!names.has("output_tokens")) {
+      this.db.run("ALTER TABLE triage_records ADD COLUMN output_tokens INTEGER NOT NULL DEFAULT 0");
+    }
   }
 
   lookup(fingerprint: string): TriageRecord | null {
@@ -107,26 +132,41 @@ export class MemoryStore {
   store(input: StoreInput): void {
     const now = new Date().toISOString();
     const evidenceJson = JSON.stringify(input.key_evidence);
+    const toolCallsJson = JSON.stringify(input.tool_calls ?? []);
+    const inputTokens = input.input_tokens ?? 0;
+    const outputTokens = input.output_tokens ?? 0;
     this.db.run(
-      `INSERT INTO triage_records (fingerprint, check_id, path, verdict, reasoning, key_evidence, suggested_fix, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO triage_records (fingerprint, check_id, path, verdict, reasoning, key_evidence, suggested_fix, tool_calls, input_tokens, output_tokens, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(fingerprint) DO UPDATE SET
          verdict = excluded.verdict,
          reasoning = excluded.reasoning,
          key_evidence = excluded.key_evidence,
          suggested_fix = excluded.suggested_fix,
+         tool_calls = excluded.tool_calls,
+         input_tokens = excluded.input_tokens,
+         output_tokens = excluded.output_tokens,
          updated_at = excluded.updated_at`,
       input.fingerprint, input.check_id, input.path, input.verdict, input.reasoning,
-      evidenceJson, input.suggested_fix ?? null, now, now,
+      evidenceJson, input.suggested_fix ?? null, toolCallsJson, inputTokens, outputTokens, now, now,
     );
   }
 
-  /** Returns the full verdict reconstructed from the record, or null if not found. */
-  lookupVerdict(fingerprint: string): TriageVerdict | null {
+  /** Returns the cached verdict + audit context (tool calls, tokens, timestamp), or null. */
+  lookupCached(fingerprint: string): CachedRecord | null {
     const row = this.db.get(
-      "SELECT verdict, reasoning, key_evidence, suggested_fix FROM triage_records WHERE fingerprint = ?",
+      "SELECT verdict, reasoning, key_evidence, suggested_fix, tool_calls, input_tokens, output_tokens, updated_at FROM triage_records WHERE fingerprint = ?",
       fingerprint,
-    ) as { verdict: string; reasoning: string; key_evidence: string; suggested_fix: string | null } | undefined;
+    ) as {
+      verdict: string;
+      reasoning: string;
+      key_evidence: string;
+      suggested_fix: string | null;
+      tool_calls: string;
+      input_tokens: number;
+      output_tokens: number;
+      updated_at: string;
+    } | undefined;
     if (!row) return null;
     const verdictParse = VerdictValue.safeParse(row.verdict);
     if (!verdictParse.success) return null;
@@ -135,11 +175,26 @@ export class MemoryStore {
       const parsed = JSON.parse(row.key_evidence);
       if (Array.isArray(parsed)) evidence = parsed.map(String);
     } catch { /* corrupted JSON — return empty */ }
+    let toolCalls: StoredToolCall[] = [];
+    try {
+      const parsed = JSON.parse(row.tool_calls);
+      if (Array.isArray(parsed)) {
+        toolCalls = parsed.filter((tc): tc is StoredToolCall =>
+          tc && typeof tc === "object" && typeof tc.tool === "string" && tc.args && typeof tc.args === "object",
+        );
+      }
+    } catch { /* corrupted JSON — return empty */ }
     return {
-      verdict: verdictParse.data,
-      reasoning: row.reasoning,
-      key_evidence: evidence,
-      suggested_fix: row.suggested_fix ?? undefined,
+      verdict: {
+        verdict: verdictParse.data,
+        reasoning: row.reasoning,
+        key_evidence: evidence,
+        suggested_fix: row.suggested_fix ?? undefined,
+      },
+      tool_calls: toolCalls,
+      input_tokens: row.input_tokens,
+      output_tokens: row.output_tokens,
+      updated_at: row.updated_at,
     };
   }
 
