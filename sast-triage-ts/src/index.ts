@@ -28,9 +28,9 @@ program
   .option("--max-steps <n>", "Max agent loop steps per finding", "15")
   .option("--memory-db <path>", "SQLite memory DB path", ".sast-triage/memory.db")
   .option("--effort <level>", "Reasoning effort: low, medium, high")
-  .option("-v, --verbose", "Enable debug logging to .sast-triage/debug.log")
+  .option("--no-log", "Disable debug logging (enabled by default)")
   .action(async (findingsPath: string | undefined, opts) => {
-    if (opts.verbose) {
+    if (opts.log !== false) {
       const logPath = resolve(process.cwd(), ".sast-triage", "debug.log");
       initLogger(logPath);
       log.info("cli", "Debug logging enabled", { logPath });
