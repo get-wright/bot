@@ -6,7 +6,17 @@ export type VerdictValue = z.infer<typeof VerdictValue>;
 // Accept string or string[] and normalize to string[]
 const StringOrArray = z.union([
   z.array(z.string()),
-  z.string().transform((s) => s.split("\n").map((l) => l.replace(/^-\s*/, "").trim()).filter(Boolean)),
+  z.string().transform((s) => {
+    // Handle JSON-stringified arrays: '["item1", "item2"]'
+    const trimmed = s.trim();
+    if (trimmed.startsWith("[")) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) return parsed.map(String);
+      } catch { /* fall through to line split */ }
+    }
+    return s.split("\n").map((l) => l.replace(/^-\s*/, "").trim()).filter(Boolean);
+  }),
 ]);
 
 export const TriageVerdictSchema = z.object({

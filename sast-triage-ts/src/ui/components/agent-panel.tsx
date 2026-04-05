@@ -17,6 +17,7 @@ function wrapText(text: string, maxWidth: number): string[] {
   if (maxWidth <= 0) return [text];
   const out: string[] = [];
   for (const para of text.split("\n")) {
+    if (para === "") { out.push(""); continue; }
     const words = para.split(" ");
     let line = "";
     for (const word of words) {
@@ -32,35 +33,7 @@ function wrapText(text: string, maxWidth: number): string[] {
   return out.length > 0 ? out : [""];
 }
 
-// --- Block-level line ---
-// Wrapping Text in Box forces Ink to treat it as a block element,
-// preventing inline merging with adjacent elements.
-function L({ children, ...props }: { children: string } & Record<string, unknown>) {
-  return <Box><Text {...props}>{children}</Text></Box>;
-}
-
-// --- Event collapsing ---
-
-type CollapsedEvent = AgentEvent | { type: "thinking_block"; text: string };
-
-function collapseEvents(events: AgentEvent[]): CollapsedEvent[] {
-  const result: CollapsedEvent[] = [];
-  let buf = "";
-  for (const ev of events) {
-    if (ev.type === "thinking") {
-      buf += ev.delta;
-    } else {
-      if (buf) { result.push({ type: "thinking_block", text: buf }); buf = ""; }
-      result.push(ev);
-    }
-  }
-  if (buf) result.push({ type: "thinking_block", text: buf });
-  return result;
-}
-
-// --- Tool call formatting (Pi style) ---
-// Pi: bold("read") + " " + accent(path) + warning(range)
-// We use: bold tool name + cyan args
+// --- Tool call formatting ---
 
 function formatToolCall(tool: string, args: Record<string, unknown>): { name: string; detail: string } {
   switch (tool) {
@@ -108,51 +81,101 @@ export function AgentPanel({
     return <Box padding={1}><Text dimColor>Press Enter to start investigating.</Text></Box>;
   }
 
-  const collapsed = collapseEvents(events);
+  // Partition events: investigation log (tool calls) and verdict
+  const toolCalls: { name: string; detail: string }[] = [];
+  let verdict: TriageVerdict | undefined;
+  let usage: { inputTokens: number; outputTokens: number } | undefined;
+  let error: string | undefined;
+  let followUpQuestion: string | undefined;
+  let permissionEvent: Extract<AgentEvent, { type: "permission_request" }> | undefined;
+
+  for (const ev of events) {
+    switch (ev.type) {
+      case "tool_start":
+        if (ev.tool !== "verdict") {
+          toolCalls.push(formatToolCall(ev.tool, ev.args));
+        }
+        break;
+      case "verdict":
+        verdict = ev.verdict;
+        break;
+      case "usage":
+        usage = { inputTokens: ev.inputTokens, outputTokens: ev.outputTokens };
+        break;
+      case "error":
+        error = ev.message;
+        break;
+      case "followup_start":
+        followUpQuestion = ev.question;
+        break;
+      case "permission_request":
+        permissionEvent = ev;
+        break;
+    }
+  }
+
+  const fmt = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
 
   return (
     <Box flexDirection="column" padding={1} overflow="hidden">
-      {collapsed.map((item, i) => {
-        if (item.type === "thinking_block") {
-          // Show only reasoning intent, not echoed tool output.
-          // Extract first meaningful sentence — models often echo grep/read
-          // results in their thinking text which clutters the panel.
-          const firstLine = item.text.split("\n")[0]?.trim();
-          if (!firstLine) return null;
-          return (
-            <Box key={i} marginTop={1}>
-              <Text dimColor>{clip(firstLine, w)}</Text>
-            </Box>
-          );
-        }
-        return <EventBlock key={i} event={item as AgentEvent} maxWidth={w} />;
-      })}
+      {/* Investigation log — compact tool calls */}
+      {toolCalls.map((tc, i) => (
+        <Box key={`t${i}`}>
+          <Text>
+            <Text dimColor>  ● </Text>
+            <Text bold>{tc.name}</Text>
+            {tc.detail ? <Text color="cyan">{` ${clip(tc.detail, w - tc.name.length - 5)}`}</Text> : null}
+          </Text>
+        </Box>
+      ))}
 
-      {isActive && events.length > 0 && (
-        <Box marginTop={1}><Text color="yellow">  Investigating...</Text></Box>
+      {/* Active spinner */}
+      {isActive && !verdict && (
+        <Box marginTop={toolCalls.length > 0 ? 1 : 0}>
+          <Text color="yellow">  ◌ Investigating...</Text>
+        </Box>
+      )}
+
+      {/* Error */}
+      {error && (
+        <Box marginTop={1}>
+          <Text color="red">{clip(`  ✗ ${error}`, w)}</Text>
+        </Box>
       )}
 
       {/* Permission prompt */}
-      {(() => {
-        const perm = [...events].reverse().find((e: AgentEvent) => e.type === "permission_request");
-        if (perm && perm.type === "permission_request" && onPermissionResolve) {
-          return (
-            <Box flexDirection="column" marginTop={1} paddingX={2}>
-              <L color="yellow" bold>Permission required</L>
-              <L dimColor>{perm.path}</L>
-              <Box>
-                <Text>
-                  <Text color="green" bold>[a]</Text>{" once  "}
-                  <Text color="cyan" bold>[d]</Text>{" dir always  "}
-                  <Text color="red" bold>[x]</Text>{" deny"}
-                </Text>
-              </Box>
-            </Box>
-          );
-        }
-        return null;
-      })()}
+      {permissionEvent && onPermissionResolve && (
+        <Box flexDirection="column" marginTop={1} paddingX={2}>
+          <Box><Text color="yellow" bold>Permission required</Text></Box>
+          <Box><Text dimColor>{permissionEvent.path}</Text></Box>
+          <Box>
+            <Text>
+              <Text color="green" bold>[a]</Text>{" once  "}
+              <Text color="cyan" bold>[d]</Text>{" dir always  "}
+              <Text color="red" bold>[x]</Text>{" deny"}
+            </Text>
+          </Box>
+        </Box>
+      )}
 
+      {/* Verdict card */}
+      {verdict && <VerdictCard verdict={verdict} width={w} />}
+
+      {/* Token usage — below card */}
+      {usage && (
+        <Box marginTop={verdict ? 1 : 0}>
+          <Text dimColor>{`  ${fmt(usage.inputTokens)} in / ${fmt(usage.outputTokens)} out`}</Text>
+        </Box>
+      )}
+
+      {/* Follow-up question display */}
+      {followUpQuestion && (
+        <Box marginTop={1}>
+          <Text color="cyan" bold>{clip(`  > ${followUpQuestion}`, w)}</Text>
+        </Box>
+      )}
+
+      {/* Follow-up input */}
       {showFollowUpInput && onFollowUp && (
         <Box marginTop={1} paddingX={2}>
           <Text bold color="cyan">&gt; </Text>
@@ -168,94 +191,72 @@ export function AgentPanel({
   );
 }
 
-// --- Event rendering ---
+// --- Verdict card ---
 
-function EventBlock({ event, maxWidth }: { event: AgentEvent; maxWidth: number }) {
-  switch (event.type) {
-    case "tool_start": {
-      // Pi style: bold(name) + accent(detail)
-      const { name, detail } = formatToolCall(event.tool, event.args);
-      const line = detail ? `${name} ${detail}` : name;
-      return (
-        <Box marginTop={1}>
-          <Text>
-            <Text color="gray">  </Text>
-            <Text bold>{name}</Text>
-            {detail ? <Text color="cyan">{` ${clip(detail, maxWidth - name.length - 3)}`}</Text> : null}
-          </Text>
-        </Box>
-      );
-    }
+function VerdictCard({ verdict, width }: { verdict: TriageVerdict; width: number }) {
+  const color = {
+    true_positive: "red" as const,
+    false_positive: "green" as const,
+    needs_review: "yellow" as const,
+  }[verdict.verdict] ?? "white" as const;
 
-    case "tool_result":
-      // Tool call line already shows what's happening.
-      // Raw output (file content, grep matches) is noise in the activity log.
-      // The agent sees it internally; the user only needs the verdict.
-      return null;
+  const label = {
+    true_positive: "TRUE POSITIVE",
+    false_positive: "FALSE POSITIVE",
+    needs_review: "NEEDS REVIEW",
+  }[verdict.verdict] ?? verdict.verdict.toUpperCase();
 
-    case "thinking":
-      return <L dimColor>{clip(event.delta, maxWidth)}</L>;
-
-    case "verdict":
-      return <VerdictBlock verdict={event.verdict} maxWidth={maxWidth} />;
-
-    case "error":
-      return <L color="red">{clip(`  ! ${event.message}`, maxWidth)}</L>;
-
-    case "usage": {
-      const fmt = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
-      return <L dimColor>{`  Tokens: ${fmt(event.inputTokens)} in / ${fmt(event.outputTokens)} out`}</L>;
-    }
-
-    case "followup_start":
-      return (
-        <Box marginTop={1}>
-          <Text color="cyan" bold>{clip(`  > ${event.question}`, maxWidth)}</Text>
-        </Box>
-      );
-
-    case "permission_request":
-      return null;
-  }
-}
-
-// --- Verdict rendering ---
-
-function VerdictBlock({ verdict, maxWidth }: { verdict: TriageVerdict; maxWidth: number }) {
-  const color = { true_positive: "red", false_positive: "green", needs_review: "#FF8C00" }[verdict.verdict] ?? "white";
-  const label = { true_positive: "TRUE POSITIVE", false_positive: "FALSE POSITIVE", needs_review: "NEEDS REVIEW" }[verdict.verdict] ?? verdict.verdict;
-  const cw = maxWidth - 4;
+  // Content width = total width - border(2) - inner padding(2)
+  const cw = width - 4;
 
   return (
-    <Box flexDirection="column" marginTop={1} paddingX={2}>
+    <Box
+      flexDirection="column"
+      marginTop={1}
+      borderStyle="round"
+      borderColor={color}
+      paddingX={1}
+      overflow="hidden"
+    >
       {/* Header */}
-      <Box><Text bold color={color}>{`  ${label}`}</Text></Box>
-      <L> </L>
-
-      {/* Reasoning — word-wrapped */}
-      <Box><Text bold>Reasoning: </Text></Box>
-      <Box flexDirection="column">
-        {wrapText(verdict.reasoning, cw).map((line, i) => (
-          <L key={`r${i}`}>{line}</L>
-        ))}
+      <Box>
+        <Text bold color={color}>{label}</Text>
       </Box>
 
-      {/* Evidence — each clipped */}
-      {verdict.key_evidence.length > 0 && (
+      {/* Reasoning */}
+      {verdict.reasoning && (
         <Box flexDirection="column" marginTop={1}>
-          <Box><Text bold>Evidence:</Text></Box>
-          {verdict.key_evidence.map((e, i) => (
-            <L key={`e${i}`} dimColor>{clip(`  - ${e}`, cw)}</L>
+          {wrapText(verdict.reasoning, cw).map((line, i) => (
+            <Box key={`r${i}`}><Text>{line}</Text></Box>
           ))}
         </Box>
       )}
 
-      {/* Fix — word-wrapped */}
+      {/* Evidence */}
+      {verdict.key_evidence.length > 0 && (
+        <Box flexDirection="column" marginTop={1}>
+          <Box><Text bold dimColor>Evidence</Text></Box>
+          {verdict.key_evidence.map((e, i) => {
+            const lines = wrapText(e, cw - 4);
+            return (
+              <Box key={`e${i}`} flexDirection="column">
+                {lines.map((line, li) => (
+                  <Box key={`e${i}-${li}`}>
+                    <Text dimColor>{li === 0 ? `  · ${line}` : `    ${line}`}</Text>
+                  </Box>
+                ))}
+              </Box>
+            );
+          })}
+        </Box>
+      )}
+
+      {/* Fix */}
       {verdict.suggested_fix && (
         <Box flexDirection="column" marginTop={1}>
-          <Box><Text bold>Fix:</Text></Box>
+          <Box><Text bold dimColor>Fix</Text></Box>
           {wrapText(verdict.suggested_fix, cw).map((line, i) => (
-            <L key={`f${i}`}>{line}</L>
+            <Box key={`f${i}`}><Text>{line}</Text></Box>
           ))}
         </Box>
       )}
