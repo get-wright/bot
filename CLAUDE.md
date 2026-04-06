@@ -41,7 +41,7 @@ Semgrep JSON → Parser → Pre-filter → Agent Loop (LLM + tools) → Verdict 
 
 ### Provider System
 
-Multi-provider via AI SDK v5: `openai`, `anthropic`, `google`, `openrouter`. OpenRouter uses `createOpenAI` with `baseURL` (Chat Completions API, not Responses API). Each provider resolved via `resolveProvider(provider, model, apiKey?, baseUrl?)`.
+Multi-provider via AI SDK v5: `openai`, `anthropic`, `google`, `openrouter`, `fpt`. OpenRouter uses `createOpenAI` with `baseURL` (Chat Completions API, not Responses API). FPT AI Marketplace (`fpt`) uses the same `createOpenAI` pattern with `baseURL` `https://mkp-api.fptcloud.com/v1`. Each provider resolved via `resolveProvider(provider, model, apiKey?, baseUrl?)`.
 
 Unified reasoning effort control via `resolveProviderOptions(provider, effort)` — maps `"low"|"medium"|"high"` to provider-specific `providerOptions`: OpenAI/OpenRouter `reasoningEffort`, Anthropic `thinking.budgetTokens`, Google `thinkingConfig.thinkingBudget`.
 

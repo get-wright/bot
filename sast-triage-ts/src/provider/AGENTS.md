@@ -17,6 +17,7 @@ Key availability detection lives in `config/project-config.ts` → `detectedProv
 | anthropic | `@ai-sdk/anthropic` | Direct |
 | google | `@ai-sdk/google` | Direct |
 | openrouter | `@ai-sdk/openai` | `createOpenAI({ baseURL })` — must use `.chat(model)` not `provider(model)` to avoid Responses API |
+| fpt | `@ai-sdk/openai` | `createOpenAI({ baseURL })` — same pattern as OpenRouter, must use `.chat(model)` |
 
 ## Reasoning Effort Mapping
 

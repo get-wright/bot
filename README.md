@@ -46,10 +46,35 @@ Options:
 
 Three-panel layout: findings list | agent investigation | stats sidebar.
 
-- **Arrow keys** — navigate findings
-- **Enter** — start investigating selected finding
-- **Tab** — toggle between Active / Filtered views
+**Navigation**
+- **↑ / ↓** — move selection in findings list
+- **Tab** — cycle views: Active → Filtered → Dismissed
+- **Space** — toggle multi-select on current finding
+- **a** — select all (in current view)
 - **q** — quit
+
+**Active view**
+- **Enter** — triage selected finding(s); with multi-select, batches them
+- **r** — re-audit current finding (clears cached verdict)
+- **f** — ask a follow-up question about the current verdict
+- **Esc** — stop a running batch queue
+
+**Filtered view**
+- **Enter** — promote selected finding(s) to Active and triage
+- **d** — dismiss current finding (moves to Dismissed)
+
+**Dismissed view**
+- **Enter** — restore selected finding(s) back to Filtered
+
+**Agent panel scroll** (middle panel, when content exceeds the viewport)
+- **PgUp / PgDn** — scroll by page
+- **Shift + ↑ / Shift + ↓** — also scroll by page
+- **Home / End** — jump to top / bottom (End resumes auto-follow)
+
+The agent panel auto-follows new output as the agent investigates. Scrolling up pauses auto-follow; pressing End (or scrolling back to the bottom) resumes it.
+
+**Other**
+- **Ctrl+P** — switch provider (re-enters setup)
 
 ### Headless (CI/scripts)
 
@@ -69,8 +94,9 @@ Outputs one NDJSON line per event (tool calls, thinking, verdicts). Pipe to `jq`
 | `anthropic` | `claude-sonnet-4-20250514` | Direct Anthropic API |
 | `google` | `gemini-2.5-pro` | Google AI Studio |
 | `openrouter` | `anthropic/claude-sonnet-4`, `z-ai/glm-4.7` | Any model via OpenRouter |
+| `fpt` | `DeepSeek-R1`, `Qwen2.5-Coder-32B-Instruct` | FPT AI Marketplace |
 
-API keys: set `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, or `OPENROUTER_API_KEY` — or enter in the TUI setup.
+API keys: set `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `OPENROUTER_API_KEY`, or `FPT_API_KEY` — or enter in the TUI setup.
 
 ## How It Works
 
@@ -120,7 +146,7 @@ Subsequent runs auto-load this config. Add `.sast-triage.toml` to `.gitignore` (
 ```bash
 cd sast-triage-ts
 npm install
-npx vitest run           # 87 tests, ~0.5s
+npx vitest run           # 112 tests, ~0.7s
 npx tsc --noEmit         # type check
 ```
 
@@ -130,7 +156,7 @@ npx tsc --noEmit         # type check
 bun build src/index.ts --compile --outfile sast-triage
 ```
 
-Produces a ~61MB standalone binary (macOS arm64). No Node.js or Bun runtime needed to run it.
+Produces a ~63MB standalone binary (macOS arm64). No Node.js or Bun runtime needed to run it.
 
 ## Tech Stack
 
