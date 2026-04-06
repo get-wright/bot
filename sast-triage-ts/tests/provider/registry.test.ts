@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { resolveProvider, SUPPORTED_PROVIDERS } from "../../src/provider/registry.js";
+import { resolveProvider, SUPPORTED_PROVIDERS, PROVIDER_DISPLAY_NAMES } from "../../src/provider/registry.js";
 
 describe("resolveProvider", () => {
   it("lists supported providers", () => {
@@ -17,5 +17,17 @@ describe("resolveProvider", () => {
     for (const p of SUPPORTED_PROVIDERS) {
       expect(() => resolveProvider(p, "test-model")).not.toThrow(/unknown provider/i);
     }
+  });
+
+  it("includes fpt in supported providers", () => {
+    expect(SUPPORTED_PROVIDERS).toContain("fpt");
+  });
+
+  it("exports display names for all providers", () => {
+    for (const p of SUPPORTED_PROVIDERS) {
+      expect(PROVIDER_DISPLAY_NAMES[p]).toBeDefined();
+      expect(typeof PROVIDER_DISPLAY_NAMES[p]).toBe("string");
+    }
+    expect(PROVIDER_DISPLAY_NAMES.fpt).toBe("FPT AI Marketplace");
   });
 });

@@ -4,7 +4,7 @@ import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import type { LanguageModel } from "ai";
 import { log } from "../logger.js";
 
-export const SUPPORTED_PROVIDERS = ["openai", "anthropic", "google", "openrouter"] as const;
+export const SUPPORTED_PROVIDERS = ["openai", "anthropic", "google", "openrouter", "fpt"] as const;
 export type ProviderName = (typeof SUPPORTED_PROVIDERS)[number];
 
 const ENV_KEYS: Record<ProviderName, string> = {
@@ -12,6 +12,15 @@ const ENV_KEYS: Record<ProviderName, string> = {
   anthropic: "ANTHROPIC_API_KEY",
   google: "GOOGLE_API_KEY",
   openrouter: "OPENROUTER_API_KEY",
+  fpt: "FPT_API_KEY",
+};
+
+export const PROVIDER_DISPLAY_NAMES: Record<ProviderName, string> = {
+  openai: "openai",
+  anthropic: "anthropic",
+  google: "google",
+  openrouter: "openrouter",
+  fpt: "FPT AI Marketplace",
 };
 
 export function detectProviders(): { name: ProviderName; hasKey: boolean }[] {
@@ -49,6 +58,13 @@ export function resolveProvider(provider: string, model: string, apiKey?: string
         baseURL: baseUrl ?? "https://openrouter.ai/api/v1",
       });
       return openrouter.chat(model);
+    }
+    case "fpt": {
+      const fpt = createOpenAI({
+        apiKey: resolvedKey,
+        baseURL: baseUrl ?? "https://mkp-api.fptcloud.com/v1",
+      });
+      return fpt.chat(model);
     }
   }
 }
