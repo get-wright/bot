@@ -572,6 +572,18 @@ function App({
         allowedPaths: projectConfig.allowedPaths,
       };
 
+      // Save config
+      projectConfig.provider = result.provider as any;
+      projectConfig.model = result.model;
+      projectConfig.apiKey = result.apiKey;
+      projectConfig.baseUrl = result.baseUrl;
+      if (result.reasoningEffort === "low" || result.reasoningEffort === "medium" || result.reasoningEffort === "high") {
+        projectConfig.reasoningEffort = result.reasoningEffort;
+      } else {
+        projectConfig.reasoningEffort = undefined;
+      }
+      projectConfig.save();
+
       if (switchingProvider) {
         setConfig(fullConfig);
         setScreen("main");

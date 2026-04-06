@@ -1,6 +1,4 @@
 import React, { useState, useEffect } from "react";
-import { existsSync } from "node:fs";
-import { resolve } from "node:path";
 import { Box, Text, useInput } from "ink";
 import TextInput from "ink-text-input";
 import { SUPPORTED_PROVIDERS, PROVIDER_DISPLAY_NAMES } from "../../provider/registry.js";
@@ -68,7 +66,7 @@ export function SetupScreen({
   // Skip when startStepProp is set (e.g. provider switch via Ctrl+P)
   useEffect(() => {
     if (startStepProp) return;
-    if (saved && existsSync(resolve(cwd, "findings.json"))) {
+    if (saved) {
       onComplete({
         provider: projectConfig.provider,
         model: projectConfig.model,
@@ -296,18 +294,6 @@ export function SetupScreen({
           onSubmit={(value) => {
             const efforts = ["low", "medium", "high"];
             const effort = effortIndex >= 0 ? efforts[effortIndex] : undefined;
-
-            // Save config for next launch
-            projectConfig.provider = selectedProvider;
-            projectConfig.model = modelInput;
-            projectConfig.apiKey = apiKeyInput || undefined;
-            projectConfig.baseUrl = baseUrlInput || undefined;
-            if (effort === "low" || effort === "medium" || effort === "high") {
-              projectConfig.reasoningEffort = effort;
-            } else {
-              projectConfig.reasoningEffort = undefined;
-            }
-            projectConfig.save();
 
             onComplete({
               provider: selectedProvider,
