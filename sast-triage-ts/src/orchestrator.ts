@@ -5,8 +5,13 @@ import type { TriageVerdict } from "./models/verdict.js";
 import type { AgentEvent } from "./models/events.js";
 import type { MemoryStore, CachedRecord } from "./memory/store.js";
 import type { FindingEntry, FindingStatus } from "./ui/components/findings-table.js";
+import type { AppConfig } from "./config.js";
+import type { AgentLoopResult } from "./agent/loop.js";
+import type { FollowUpExchange } from "./agent/follow-up.js";
 import { parseSemgrepOutput, fingerprintFinding } from "./parser/semgrep.js";
 import { prefilterFinding } from "./parser/prefilter.js";
+import { runAgentLoop } from "./agent/loop.js";
+import { runFollowUp } from "./agent/follow-up.js";
 
 export interface FindingState {
   entry: FindingEntry;
@@ -69,6 +74,67 @@ export class TriageOrchestrator {
     }
 
     return { active, filtered, total: allFindings.length };
+  }
+
+  async triage(
+    finding: Finding,
+    fingerprint: string,
+    config: AppConfig,
+    onEvent: (event: AgentEvent) => void,
+  ): Promise<AgentLoopResult> {
+    const memoryHints = this.memory.getHints(finding.check_id, fingerprint);
+
+    const result = await runAgentLoop({
+      finding,
+      projectRoot: process.cwd(),
+      provider: config.provider,
+      model: config.model,
+      maxSteps: config.maxSteps,
+      allowBash: config.allowBash,
+      onEvent,
+      memoryHints,
+      apiKey: config.apiKey,
+      baseUrl: config.baseUrl,
+      reasoningEffort: config.reasoningEffort,
+      allowedPaths: config.allowedPaths,
+    });
+
+    this.memory.store({
+      fingerprint,
+      check_id: finding.check_id,
+      path: finding.path,
+      verdict: result.verdict.verdict,
+      reasoning: result.verdict.reasoning,
+      key_evidence: result.verdict.key_evidence,
+      suggested_fix: result.verdict.suggested_fix,
+      tool_calls: result.toolCalls,
+      input_tokens: result.inputTokens,
+      output_tokens: result.outputTokens,
+    });
+
+    return result;
+  }
+
+  async followUp(
+    finding: Finding,
+    previousVerdict: TriageVerdict,
+    question: string,
+    priorExchanges: FollowUpExchange[],
+    config: AppConfig,
+    onEvent: (event: AgentEvent) => void,
+  ): Promise<string> {
+    return runFollowUp({
+      finding,
+      previousVerdict,
+      question,
+      priorExchanges,
+      provider: config.provider,
+      model: config.model,
+      onEvent,
+      apiKey: config.apiKey,
+      baseUrl: config.baseUrl,
+      reasoningEffort: config.reasoningEffort,
+    });
   }
 }
 
