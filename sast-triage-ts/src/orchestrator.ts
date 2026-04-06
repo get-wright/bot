@@ -115,6 +115,33 @@ export class TriageOrchestrator {
     return result;
   }
 
+  async runHeadless(config: AppConfig): Promise<void> {
+    const { active, filtered, total } = this.loadFindings(config.findingsPath);
+
+    if (total === 0) {
+      console.error("No findings parsed from input.");
+      process.exit(1);
+    }
+
+    for (const f of filtered) {
+      const fp = fingerprintFinding(f.finding);
+      console.log(JSON.stringify({ type: "filtered", fingerprint: fp, rule: f.finding.check_id, reason: f.reason }));
+    }
+
+    if (active.length === 0) {
+      console.error("No actionable findings after prefilter.");
+      process.exit(1);
+    }
+
+    for (const state of active) {
+      const onEvent = (event: AgentEvent) => {
+        console.log(JSON.stringify({ ...event, fingerprint: state.entry.fingerprint }));
+      };
+
+      await this.triage(state.finding, state.entry.fingerprint, config, onEvent);
+    }
+  }
+
   async followUp(
     finding: Finding,
     previousVerdict: TriageVerdict,
