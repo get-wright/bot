@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { Box, Text } from "ink";
+import React, { useState, useEffect, useRef } from "react";
+import { Box, Text, useInput } from "ink";
 import TextInput from "ink-text-input";
 import type { AgentEvent } from "../../models/events.js";
 import type { TriageVerdict } from "../../models/verdict.js";
@@ -61,8 +61,6 @@ function formatToolCall(tool: string, args: Record<string, unknown>): { name: st
   }
 }
 
-// --- Main component ---
-
 function formatTimestamp(iso: string): string {
   try {
     const d = new Date(iso);
@@ -73,26 +71,201 @@ function formatTimestamp(iso: string): string {
   }
 }
 
+// --- Line-based rendering for scroll ---
+
+type VerdictColor = "red" | "green" | "yellow" | "white";
+
+type Line =
+  | { kind: "tool"; name: string; detail: string }
+  | { kind: "blank" }
+  | { kind: "spinner"; text: string }
+  | { kind: "error"; text: string }
+  | { kind: "verdict-head"; label: string; color: VerdictColor }
+  | { kind: "verdict-blank"; color: VerdictColor }
+  | { kind: "verdict-text"; text: string; color: VerdictColor }
+  | { kind: "verdict-label"; text: string; color: VerdictColor }
+  | { kind: "verdict-evidence"; text: string; color: VerdictColor }
+  | { kind: "usage"; left: string; right: string }
+  | { kind: "followup-q"; text: string };
+
+function verdictStyle(v: TriageVerdict["verdict"]): { color: VerdictColor; label: string } {
+  switch (v) {
+    case "true_positive": return { color: "red", label: "TRUE POSITIVE" };
+    case "false_positive": return { color: "green", label: "FALSE POSITIVE" };
+    case "needs_review": return { color: "yellow", label: "NEEDS REVIEW" };
+    default: return { color: "white", label: String(v).toUpperCase() };
+  }
+}
+
+function fmtTokens(n: number): string {
+  return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
+}
+
+function buildLines(params: {
+  toolCalls: { name: string; detail: string }[];
+  isActive: boolean;
+  verdict?: TriageVerdict;
+  usage?: { inputTokens: number; outputTokens: number };
+  cachedAt?: string;
+  error?: string;
+  followUpQuestion?: string;
+  w: number;
+}): Line[] {
+  const { toolCalls, isActive, verdict, usage, cachedAt, error, followUpQuestion, w } = params;
+  const lines: Line[] = [];
+
+  for (const tc of toolCalls) {
+    lines.push({ kind: "tool", name: tc.name, detail: tc.detail });
+  }
+
+  if (isActive && !verdict) {
+    if (lines.length > 0) lines.push({ kind: "blank" });
+    lines.push({ kind: "spinner", text: "◌ Investigating..." });
+  }
+
+  if (error) {
+    if (lines.length > 0) lines.push({ kind: "blank" });
+    lines.push({ kind: "error", text: `✗ ${error}` });
+  }
+
+  if (verdict) {
+    const { color, label } = verdictStyle(verdict.verdict);
+    const cw = Math.max(10, w - 2); // reserve "│ " prefix
+
+    if (lines.length > 0) lines.push({ kind: "blank" });
+    lines.push({ kind: "verdict-head", label, color });
+
+    if (verdict.reasoning) {
+      lines.push({ kind: "verdict-blank", color });
+      for (const wrapped of wrapText(verdict.reasoning, cw)) {
+        lines.push({ kind: "verdict-text", text: wrapped, color });
+      }
+    }
+
+    if (verdict.key_evidence.length > 0) {
+      lines.push({ kind: "verdict-blank", color });
+      lines.push({ kind: "verdict-label", text: "Evidence", color });
+      for (const e of verdict.key_evidence) {
+        const wrappedLines = wrapText(e, Math.max(4, cw - 4));
+        wrappedLines.forEach((line, li) => {
+          lines.push({
+            kind: "verdict-evidence",
+            text: li === 0 ? `  · ${line}` : `    ${line}`,
+            color,
+          });
+        });
+      }
+    }
+
+    if (verdict.suggested_fix) {
+      lines.push({ kind: "verdict-blank", color });
+      lines.push({ kind: "verdict-label", text: "Fix", color });
+      for (const wrapped of wrapText(verdict.suggested_fix, cw)) {
+        lines.push({ kind: "verdict-text", text: wrapped, color });
+      }
+    }
+  }
+
+  if (usage || cachedAt) {
+    lines.push({ kind: "blank" });
+    lines.push({
+      kind: "usage",
+      left: usage ? `${fmtTokens(usage.inputTokens)} in / ${fmtTokens(usage.outputTokens)} out` : "",
+      right: cachedAt ? formatTimestamp(cachedAt) : "",
+    });
+  }
+
+  if (followUpQuestion) {
+    lines.push({ kind: "blank" });
+    lines.push({ kind: "followup-q", text: `> ${followUpQuestion}` });
+  }
+
+  return lines;
+}
+
+function renderLine(line: Line, w: number, key: string): React.ReactElement {
+  switch (line.kind) {
+    case "tool":
+      return (
+        <Box key={key}>
+          <Text>
+            <Text dimColor>  ● </Text>
+            <Text bold>{line.name}</Text>
+            {line.detail ? <Text color="cyan">{` ${clip(line.detail, Math.max(1, w - line.name.length - 5))}`}</Text> : null}
+          </Text>
+        </Box>
+      );
+    case "blank":
+      return <Box key={key}><Text> </Text></Box>;
+    case "spinner":
+      return <Box key={key}><Text color="yellow">  {line.text}</Text></Box>;
+    case "error":
+      return <Box key={key}><Text color="red">{clip(`  ${line.text}`, w)}</Text></Box>;
+    case "verdict-head":
+      return (
+        <Box key={key}>
+          <Text color={line.color}>│ </Text>
+          <Text color={line.color} bold>{line.label}</Text>
+        </Box>
+      );
+    case "verdict-blank":
+      return <Box key={key}><Text color={line.color}>│</Text></Box>;
+    case "verdict-text":
+      return (
+        <Box key={key}>
+          <Text color={line.color}>│ </Text>
+          <Text>{line.text}</Text>
+        </Box>
+      );
+    case "verdict-label":
+      return (
+        <Box key={key}>
+          <Text color={line.color}>│ </Text>
+          <Text bold dimColor>{line.text}</Text>
+        </Box>
+      );
+    case "verdict-evidence":
+      return (
+        <Box key={key}>
+          <Text color={line.color}>│ </Text>
+          <Text dimColor>{line.text}</Text>
+        </Box>
+      );
+    case "usage":
+      return (
+        <Box key={key} width={w} justifyContent="space-between">
+          <Text dimColor>{`  ${line.left}`}</Text>
+          <Text dimColor>{line.right}</Text>
+        </Box>
+      );
+    case "followup-q":
+      return <Box key={key}><Text color="cyan" bold>{clip(`  ${line.text}`, w)}</Text></Box>;
+  }
+}
+
+// --- Main component ---
+
 export function AgentPanel({
-  events, isActive, width,
+  events, isActive, width, height,
   showFollowUpInput, onFollowUp, onPermissionResolve, cachedAt,
 }: {
   events: AgentEvent[];
   isActive: boolean;
   width: number;
+  height: number;
   showFollowUpInput?: boolean;
   onFollowUp?: (question: string) => void;
   onPermissionResolve?: (decision: "once" | "always" | "deny") => void;
   cachedAt?: string;
 }) {
   const [followUpText, setFollowUpText] = useState("");
+  const [scrollOffset, setScrollOffset] = useState(0);
+  const [userScrolled, setUserScrolled] = useState(false);
+  const prevLineCountRef = useRef(0);
+
   const w = width - 2;
 
-  if (events.length === 0 && !isActive) {
-    return <Box padding={1}><Text dimColor>Press Enter to start investigating.</Text></Box>;
-  }
-
-  // Partition events: investigation log (tool calls) and verdict
+  // Partition events
   const toolCalls: { name: string; detail: string }[] = [];
   let verdict: TriageVerdict | undefined;
   let usage: { inputTokens: number; outputTokens: number } | undefined;
@@ -103,62 +276,87 @@ export function AgentPanel({
   for (const ev of events) {
     switch (ev.type) {
       case "tool_start":
-        if (ev.tool !== "verdict") {
-          toolCalls.push(formatToolCall(ev.tool, ev.args));
-        }
+        if (ev.tool !== "verdict") toolCalls.push(formatToolCall(ev.tool, ev.args));
         break;
-      case "verdict":
-        verdict = ev.verdict;
-        break;
-      case "usage":
-        usage = { inputTokens: ev.inputTokens, outputTokens: ev.outputTokens };
-        break;
-      case "error":
-        error = ev.message;
-        break;
-      case "followup_start":
-        followUpQuestion = ev.question;
-        break;
-      case "permission_request":
-        permissionEvent = ev;
-        break;
+      case "verdict": verdict = ev.verdict; break;
+      case "usage": usage = { inputTokens: ev.inputTokens, outputTokens: ev.outputTokens }; break;
+      case "error": error = ev.message; break;
+      case "followup_start": followUpQuestion = ev.question; break;
+      case "permission_request": permissionEvent = ev; break;
     }
   }
 
-  const fmt = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
+  const lines = buildLines({ toolCalls, isActive, verdict, usage, cachedAt, error, followUpQuestion, w });
+
+  // Footer reservation (interactive elements, always visible below viewport)
+  const footerRows = permissionEvent ? 4 : (showFollowUpInput ? 2 : 0);
+
+  // Content budget after padding={1} top+bottom
+  const contentHeight = Math.max(1, height - 2);
+  const availableForLines = Math.max(1, contentHeight - footerRows);
+  const canScroll = lines.length > availableForLines;
+  const viewHeight = canScroll ? Math.max(1, availableForLines - 1) : availableForLines;
+  const maxOffset = Math.max(0, lines.length - viewHeight);
+
+  // Auto-follow: on new lines, stick to bottom unless user scrolled away.
+  // Reset userScrolled when content shrinks (new audit, reset).
+  useEffect(() => {
+    const prev = prevLineCountRef.current;
+    prevLineCountRef.current = lines.length;
+    if (lines.length < prev) {
+      setUserScrolled(false);
+      setScrollOffset(0);
+      return;
+    }
+    if (!userScrolled) {
+      setScrollOffset(Math.max(0, lines.length - viewHeight));
+    }
+  }, [lines.length, viewHeight, userScrolled]);
+
+  const clampedOffset = Math.min(scrollOffset, maxOffset);
+
+  useInput((_input, key) => {
+    if (showFollowUpInput) return;
+    if (!canScroll) return;
+    const page = Math.max(1, viewHeight - 1);
+    if (key.pageUp || (key.upArrow && key.shift)) {
+      setUserScrolled(true);
+      setScrollOffset((o) => Math.max(0, Math.min(o, maxOffset) - page));
+    } else if (key.pageDown || (key.downArrow && key.shift)) {
+      setScrollOffset((o) => {
+        const next = Math.min(maxOffset, Math.min(o, maxOffset) + page);
+        setUserScrolled(next < maxOffset);
+        return next;
+      });
+    } else if (key.home) {
+      setUserScrolled(true);
+      setScrollOffset(0);
+    } else if (key.end) {
+      setUserScrolled(false);
+      setScrollOffset(maxOffset);
+    }
+  });
+
+  if (events.length === 0 && !isActive) {
+    return <Box padding={1}><Text dimColor>Press Enter to start investigating.</Text></Box>;
+  }
+
+  const visible = lines.slice(clampedOffset, clampedOffset + viewHeight);
+  const above = clampedOffset;
+  const below = Math.max(0, lines.length - clampedOffset - viewHeight);
 
   return (
-    <Box flexDirection="column" padding={1} overflow="hidden">
-      {/* Investigation log — compact tool calls */}
-      {toolCalls.map((tc, i) => (
-        <Box key={`t${i}`}>
-          <Text>
-            <Text dimColor>  ● </Text>
-            <Text bold>{tc.name}</Text>
-            {tc.detail ? <Text color="cyan">{` ${clip(tc.detail, w - tc.name.length - 5)}`}</Text> : null}
-          </Text>
-        </Box>
-      ))}
-
-      {/* Active spinner */}
-      {isActive && !verdict && (
-        <Box marginTop={toolCalls.length > 0 ? 1 : 0}>
-          <Text color="yellow">  ◌ Investigating...</Text>
+    <Box flexDirection="column" padding={1}>
+      {visible.map((line, i) => renderLine(line, w, `v${clampedOffset + i}`))}
+      {canScroll && (
+        <Box width={w}>
+          <Text dimColor>{clip(scrollIndicator(above, below), w)}</Text>
         </Box>
       )}
-
-      {/* Error */}
-      {error && (
-        <Box marginTop={1}>
-          <Text color="red">{clip(`  ✗ ${error}`, w)}</Text>
-        </Box>
-      )}
-
-      {/* Permission prompt */}
       {permissionEvent && onPermissionResolve && (
-        <Box flexDirection="column" marginTop={1} paddingX={2}>
+        <Box flexDirection="column" paddingX={2}>
           <Box><Text color="yellow" bold>Permission required</Text></Box>
-          <Box><Text dimColor>{permissionEvent.path}</Text></Box>
+          <Box><Text dimColor>{clip(permissionEvent.path, w - 4)}</Text></Box>
           <Box>
             <Text>
               <Text color="green" bold>[a]</Text>{" once  "}
@@ -168,30 +366,8 @@ export function AgentPanel({
           </Box>
         </Box>
       )}
-
-      {/* Verdict card */}
-      {verdict && <VerdictCard verdict={verdict} width={w} />}
-
-      {/* Token usage (left) + cached-at timestamp (right) — below card */}
-      {(usage || cachedAt) && (
-        <Box marginTop={verdict ? 1 : 0} width={w} justifyContent="space-between">
-          <Text dimColor>
-            {usage ? `  ${fmt(usage.inputTokens)} in / ${fmt(usage.outputTokens)} out` : "  "}
-          </Text>
-          {cachedAt && <Text dimColor>{formatTimestamp(cachedAt)}</Text>}
-        </Box>
-      )}
-
-      {/* Follow-up question display */}
-      {followUpQuestion && (
-        <Box marginTop={1}>
-          <Text color="cyan" bold>{clip(`  > ${followUpQuestion}`, w)}</Text>
-        </Box>
-      )}
-
-      {/* Follow-up input */}
       {showFollowUpInput && onFollowUp && (
-        <Box marginTop={1} paddingX={2}>
+        <Box paddingX={2}>
           <Text bold color="cyan">&gt; </Text>
           <TextInput
             value={followUpText}
@@ -205,75 +381,10 @@ export function AgentPanel({
   );
 }
 
-// --- Verdict card ---
-
-function VerdictCard({ verdict, width }: { verdict: TriageVerdict; width: number }) {
-  const color = {
-    true_positive: "red" as const,
-    false_positive: "green" as const,
-    needs_review: "yellow" as const,
-  }[verdict.verdict] ?? "white" as const;
-
-  const label = {
-    true_positive: "TRUE POSITIVE",
-    false_positive: "FALSE POSITIVE",
-    needs_review: "NEEDS REVIEW",
-  }[verdict.verdict] ?? verdict.verdict.toUpperCase();
-
-  // Content width = total width - border(2) - inner padding(2)
-  const cw = width - 4;
-
-  return (
-    <Box
-      flexDirection="column"
-      marginTop={1}
-      borderStyle="round"
-      borderColor={color}
-      paddingX={1}
-      overflow="hidden"
-    >
-      {/* Header */}
-      <Box>
-        <Text bold color={color}>{label}</Text>
-      </Box>
-
-      {/* Reasoning */}
-      {verdict.reasoning && (
-        <Box flexDirection="column" marginTop={1}>
-          {wrapText(verdict.reasoning, cw).map((line, i) => (
-            <Box key={`r${i}`}><Text>{line}</Text></Box>
-          ))}
-        </Box>
-      )}
-
-      {/* Evidence */}
-      {verdict.key_evidence.length > 0 && (
-        <Box flexDirection="column" marginTop={1}>
-          <Box><Text bold dimColor>Evidence</Text></Box>
-          {verdict.key_evidence.map((e, i) => {
-            const lines = wrapText(e, cw - 4);
-            return (
-              <Box key={`e${i}`} flexDirection="column">
-                {lines.map((line, li) => (
-                  <Box key={`e${i}-${li}`}>
-                    <Text dimColor>{li === 0 ? `  · ${line}` : `    ${line}`}</Text>
-                  </Box>
-                ))}
-              </Box>
-            );
-          })}
-        </Box>
-      )}
-
-      {/* Fix */}
-      {verdict.suggested_fix && (
-        <Box flexDirection="column" marginTop={1}>
-          <Box><Text bold dimColor>Fix</Text></Box>
-          {wrapText(verdict.suggested_fix, cw).map((line, i) => (
-            <Box key={`f${i}`}><Text>{line}</Text></Box>
-          ))}
-        </Box>
-      )}
-    </Box>
-  );
+function scrollIndicator(above: number, below: number): string {
+  const parts: string[] = [];
+  if (above > 0) parts.push(`↑ ${above} above`);
+  if (below > 0) parts.push(`↓ ${below} below`);
+  parts.push("PgUp/PgDn · Home/End");
+  return `  ${parts.join(" · ")}`;
 }

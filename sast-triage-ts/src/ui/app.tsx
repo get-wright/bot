@@ -402,8 +402,9 @@ function MainScreen({
       setSelectedIndices(new Set());
       return;
     }
-    if (key.upArrow && selectedIndex > 0) setSelectedIndex(selectedIndex - 1);
-    if (key.downArrow && selectedIndex < listLength - 1) setSelectedIndex(selectedIndex + 1);
+    // Plain arrows navigate list; shift+arrow is reserved for AgentPanel scroll
+    if (key.upArrow && !key.shift && selectedIndex > 0) setSelectedIndex(selectedIndex - 1);
+    if (key.downArrow && !key.shift && selectedIndex < listLength - 1) setSelectedIndex(selectedIndex + 1);
 
     // Space: toggle selection (works in all views)
     if (input === " " && !isTriaging) {
@@ -550,6 +551,7 @@ function MainScreen({
             events={selected.events}
             isActive={isTriaging && selectedIndex === findingStates.indexOf(selected)}
             width={panelWidth - 4}
+            height={termHeight - 3}
             showFollowUpInput={showFollowUp}
             onFollowUp={handleFollowUp}
             onPermissionResolve={handlePermissionResolve}
