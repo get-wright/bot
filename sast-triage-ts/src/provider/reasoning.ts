@@ -19,6 +19,7 @@ export function resolveProviderOptions(
   switch (provider) {
     case "openai":
     case "openrouter":
+    case "fpt":
       return { openai: { reasoningEffort: effort } };
     case "anthropic":
       return {

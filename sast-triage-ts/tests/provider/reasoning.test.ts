@@ -40,6 +40,11 @@ describe("resolveProviderOptions", () => {
     });
   });
 
+  it("returns OpenAI reasoningEffort for fpt provider", () => {
+    const opts = resolveProviderOptions("fpt", "high");
+    expect(opts).toEqual({ openai: { reasoningEffort: "high" } });
+  });
+
   it("maps all effort levels correctly", () => {
     for (const effort of ["low", "medium", "high"] as const) {
       const opts = resolveProviderOptions("openai", effort);
