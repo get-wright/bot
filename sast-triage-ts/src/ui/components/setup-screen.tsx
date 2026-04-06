@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { Box, Text, useInput } from "ink";
 import TextInput from "ink-text-input";
-import { SUPPORTED_PROVIDERS } from "../../provider/registry.js";
+import { SUPPORTED_PROVIDERS, PROVIDER_DISPLAY_NAMES } from "../../provider/registry.js";
 import type { ProviderName } from "../../provider/registry.js";
 import { ProjectConfig } from "../../config/project-config.js";
 
@@ -12,6 +12,7 @@ const DEFAULT_MODELS: Record<ProviderName, string> = {
   anthropic: "claude-sonnet-4-20250514",
   google: "gemini-2.5-pro",
   openrouter: "anthropic/claude-sonnet-4",
+  fpt: "DeepSeek-R1",
 };
 
 export interface SetupResult {
@@ -105,7 +106,11 @@ export function SetupScreen({
         setSelectedProvider(chosen.name);
         setModelInput(DEFAULT_MODELS[chosen.name]);
         setApiKeyInput("");
-        setBaseUrlInput(chosen.name === "openrouter" ? "https://openrouter.ai/api/v1" : "");
+        setBaseUrlInput(
+          chosen.name === "openrouter" ? "https://openrouter.ai/api/v1"
+          : chosen.name === "fpt" ? "https://mkp-api.fptcloud.com/v1"
+          : ""
+        );
         setStep("apikey");
       }
     }
@@ -159,7 +164,7 @@ export function SetupScreen({
           return (
             <Text key={p.name}>
               <Text color={sel ? "cyan" : undefined} bold={sel}>
-                {" "}{indicator} {p.name}
+                {" "}{indicator} {PROVIDER_DISPLAY_NAMES[p.name]}
               </Text>
               {keyStatus}
             </Text>
@@ -174,13 +179,13 @@ export function SetupScreen({
   // --- API Key ---
   if (step === "apikey") {
     const savedHasKey = !!projectConfig.savedApiKeys[selectedProvider];
-    const envKeyName = { openai: "OPENAI_API_KEY", anthropic: "ANTHROPIC_API_KEY", google: "GOOGLE_API_KEY", openrouter: "OPENROUTER_API_KEY" }[selectedProvider];
+    const envKeyName = { openai: "OPENAI_API_KEY", anthropic: "ANTHROPIC_API_KEY", google: "GOOGLE_API_KEY", openrouter: "OPENROUTER_API_KEY", fpt: "FPT_API_KEY" }[selectedProvider];
     const envHasKey = !!process.env[envKeyName];
     const hasAnyKey = savedHasKey || envHasKey;
     return (
       <Box flexDirection="column" paddingX={2} paddingY={1}>
         <Text bold>API Key</Text>
-        <Text dimColor>Provider: {selectedProvider}</Text>
+        <Text dimColor>Provider: {PROVIDER_DISPLAY_NAMES[selectedProvider]}</Text>
         <Text> </Text>
         {savedHasKey && <Text color="green">● Saved key found</Text>}
         {!savedHasKey && envHasKey && <Text color="green">● Environment variable detected</Text>}
@@ -209,7 +214,7 @@ export function SetupScreen({
     return (
       <Box flexDirection="column" paddingX={2} paddingY={1}>
         <Text bold>Base URL</Text>
-        <Text dimColor>Provider: {selectedProvider}</Text>
+        <Text dimColor>Provider: {PROVIDER_DISPLAY_NAMES[selectedProvider]}</Text>
         <Text> </Text>
         <Box>
           <Text>URL: </Text>
@@ -230,7 +235,7 @@ export function SetupScreen({
     return (
       <Box flexDirection="column" paddingX={2} paddingY={1}>
         <Text bold>Model</Text>
-        <Text dimColor>Provider: {selectedProvider}</Text>
+        <Text dimColor>Provider: {PROVIDER_DISPLAY_NAMES[selectedProvider]}</Text>
         <Text> </Text>
         <Box>
           <Text>Model: </Text>
@@ -280,7 +285,7 @@ export function SetupScreen({
     <Box flexDirection="column" paddingX={2} paddingY={1}>
       <Text bold>Findings File</Text>
       <Text dimColor>
-        {selectedProvider} / {modelInput}
+        {PROVIDER_DISPLAY_NAMES[selectedProvider]} / {modelInput}
       </Text>
       <Text> </Text>
       <Box>
