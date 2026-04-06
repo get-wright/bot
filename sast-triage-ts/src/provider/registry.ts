@@ -16,10 +16,10 @@ const ENV_KEYS: Record<ProviderName, string> = {
 };
 
 export const PROVIDER_DISPLAY_NAMES: Record<ProviderName, string> = {
-  openai: "openai",
-  anthropic: "anthropic",
-  google: "google",
-  openrouter: "openrouter",
+  openai: "OpenAI",
+  anthropic: "Anthropic",
+  google: "Google AI",
+  openrouter: "OpenRouter",
   fpt: "FPT AI Marketplace",
 };
 
