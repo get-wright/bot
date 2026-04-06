@@ -1,5 +1,6 @@
 import React from "react";
 import { Box, Text } from "ink";
+import { PROVIDER_DISPLAY_NAMES, type ProviderName } from "../../provider/registry.js";
 
 export interface QueueItem {
   label: string;
@@ -58,7 +59,7 @@ export function Sidebar({
       <Text color="#FF8C00">NR: {nr}</Text>
       <Text> </Text>
       <Text bold>Model</Text>
-      <Text dimColor>{provider}</Text>
+      <Text dimColor>{PROVIDER_DISPLAY_NAMES[provider as ProviderName] ?? provider}</Text>
       <Text dimColor>{model}</Text>
       {queue && queue.length > 0 && (
         <>
