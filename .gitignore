@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+
+# Build artifacts
+sast-triage-ts/sast-triage
+
+# Test temp files
+sast-triage-ts/tests/config/.tmp/
+
+# Python
+sast_triage.egg-info/
+__pycache__/
+*.pyc
+.venv/
+
+# SAST triage runtime
+.sast-triage/
+sast-triage-ts/.sast-triage/
+
+# IDE / tooling
+.claude/
+.superpowers/
