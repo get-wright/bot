@@ -21,7 +21,7 @@ program
   .description("Agentic SAST finding triage via LLM-driven codebase exploration")
   .version("0.1.0")
   .argument("[findings]", "Path to Semgrep JSON output file")
-  .option("--provider <provider>", "LLM provider (openai, anthropic, google, openrouter)")
+  .option("--provider <provider>", "LLM provider (openai, anthropic, google, openrouter, fpt)")
   .option("--model <model>", "Model ID")
   .option("--headless", "Output NDJSON to stdout instead of TUI", false)
   .option("--allow-bash", "Enable bash tool for agent", false)
