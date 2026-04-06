@@ -60,8 +60,8 @@ describe("ProjectConfig", () => {
   it("detectedProviders checks env vars", () => {
     const cfg = new ProjectConfig(workspace);
     const detected = cfg.detectedProviders();
-    // At minimum returns all 4 providers with hasKey booleans
-    expect(detected).toHaveLength(4);
+    // At minimum returns all 5 providers with hasKey booleans
+    expect(detected).toHaveLength(5);
     expect(detected[0]).toHaveProperty("name");
     expect(detected[0]).toHaveProperty("hasKey");
   });

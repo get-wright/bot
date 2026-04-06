@@ -11,6 +11,7 @@ const ENV_KEYS: Record<ProviderName, string> = {
   anthropic: "ANTHROPIC_API_KEY",
   google: "GOOGLE_API_KEY",
   openrouter: "OPENROUTER_API_KEY",
+  fpt: "FPT_API_KEY",
 };
 
 export class ProjectConfig {
