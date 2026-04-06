@@ -1,20 +1,16 @@
 import React, { useState, useCallback, useRef, useEffect } from "react";
 import { Box, Text, useInput, useApp } from "ink";
 import { withFullScreen } from "fullscreen-ink";
-import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { Finding } from "../models/finding.js";
 import type { AppConfig } from "../config.js";
-import type { MemoryStore } from "../memory/store.js";
-import type { AgentEvent, PermissionDecision } from "../models/events.js";
-import type { TriageVerdict } from "../models/verdict.js";
-import { parseSemgrepOutput, fingerprintFinding } from "../parser/semgrep.js";
-import { prefilterFinding } from "../parser/prefilter.js";
-import { runAgentLoop } from "../agent/loop.js";
-import { runFollowUp, type FollowUpExchange } from "../agent/follow-up.js";
-import { FindingsTable, type FindingEntry, type FindingStatus } from "./components/findings-table.js";
+import type { PermissionDecision } from "../models/events.js";
+import type { FollowUpExchange } from "../agent/follow-up.js";
+import type { TriageOrchestrator, FindingState, FilteredFinding } from "../orchestrator.js";
+import { fingerprintFinding } from "../parser/semgrep.js";
+import { FindingsTable, type FindingStatus } from "./components/findings-table.js";
 import { AgentPanel } from "./components/agent-panel.js";
-import { Sidebar, type QueueItem, type UsageStats } from "./components/sidebar.js";
+import { Sidebar, type UsageStats } from "./components/sidebar.js";
 import { SetupScreen, type SetupResult } from "./components/setup-screen.js";
 import { ProjectConfig } from "../config/project-config.js";
 import { FindingDetail } from "./components/finding-detail.js";
@@ -39,28 +35,22 @@ function useTerminalSize(): { columns: number; rows: number } {
   return size;
 }
 
-interface FindingState {
-  entry: FindingEntry;
-  finding: Finding;
-  events: AgentEvent[];
-  verdict?: TriageVerdict;
-  cachedAt?: string;
-}
-
 function MainScreen({
   findings,
+  findingStatesInit,
   filteredFindings: initialFilteredFindings,
   totalCount,
   config,
-  memory,
+  orchestrator,
   onSwitchProvider,
   initialView = "active",
 }: {
   findings: Finding[];
-  filteredFindings: { finding: Finding; reason: string }[];
+  findingStatesInit: FindingState[];
+  filteredFindings: FilteredFinding[];
   totalCount: number;
   config: AppConfig;
-  memory: MemoryStore;
+  orchestrator: TriageOrchestrator;
   onSwitchProvider?: () => void;
   initialView?: "active" | "filtered" | "dismissed";
 }) {
@@ -68,44 +58,8 @@ function MainScreen({
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [viewMode, setViewMode] = useState<"active" | "filtered" | "dismissed">(initialView);
   const [filteredFindings, setFilteredFindings] = useState(initialFilteredFindings);
-  const [dismissedFindings, setDismissedFindings] = useState<{ finding: Finding; reason: string }[]>([]);
-  const [findingStates, setFindingStates] = useState<FindingState[]>(() =>
-    findings.map((f) => {
-      const fp = fingerprintFinding(f);
-      const cached = memory.lookupCached(fp);
-      // Synthesize events for cached findings so the AgentPanel renders the
-      // full audit context (tool calls, verdict, token usage) from persisted
-      // data — not just the empty-state message.
-      const events: AgentEvent[] = [];
-      if (cached) {
-        for (const tc of cached.tool_calls) {
-          events.push({ type: "tool_start", tool: tc.tool, args: tc.args });
-        }
-        events.push({ type: "verdict", verdict: cached.verdict });
-        if (cached.input_tokens > 0 || cached.output_tokens > 0) {
-          events.push({
-            type: "usage",
-            inputTokens: cached.input_tokens,
-            outputTokens: cached.output_tokens,
-            totalTokens: cached.input_tokens + cached.output_tokens,
-          });
-        }
-      }
-      return {
-        entry: {
-          fingerprint: fp,
-          ruleId: f.check_id,
-          fileLine: `${f.path}:${f.start.line}`,
-          severity: f.extra.severity,
-          status: (cached?.verdict.verdict ?? "pending") as FindingStatus,
-        },
-        finding: f,
-        events,
-        verdict: cached?.verdict,
-        cachedAt: cached?.updated_at,
-      };
-    }),
-  );
+  const [dismissedFindings, setDismissedFindings] = useState<FilteredFinding[]>([]);
+  const [findingStates, setFindingStates] = useState<FindingState[]>(findingStatesInit);
   const [isTriaging, setIsTriaging] = useState(false);
   const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
   const [queueState, setQueueState] = useState<{
@@ -138,17 +92,11 @@ function MainScreen({
       setCurrentUsage(undefined);
       setSelectedIndex(idx);
 
-      const fp = state.entry.fingerprint;
-      const memoryHints = memory.getHints(state.finding.check_id, fp);
-
-      const result = await runAgentLoop({
-        finding: state.finding,
-        projectRoot: process.cwd(),
-        provider: config.provider,
-        model: config.model,
-        maxSteps: config.maxSteps,
-        allowBash: config.allowBash,
-        onEvent: (event) => {
+      const result = await orchestrator.triage(
+        state.finding,
+        state.entry.fingerprint,
+        config,
+        (event) => {
           if (event.type === "usage") {
             const usage = { inputTokens: event.inputTokens, outputTokens: event.outputTokens, totalTokens: event.totalTokens };
             setCurrentUsage(usage);
@@ -165,26 +113,9 @@ function MainScreen({
             prev.map((s, i) => (i === idx ? { ...s, events: [...s.events, event] } : s)),
           );
         },
-        memoryHints,
-        apiKey: config.apiKey,
-        baseUrl: config.baseUrl,
-        reasoningEffort: config.reasoningEffort,
-        allowedPaths: config.allowedPaths,
-      });
+      );
 
       const verdict = result.verdict;
-      memory.store({
-        fingerprint: fp,
-        check_id: state.finding.check_id,
-        path: state.finding.path,
-        verdict: verdict.verdict,
-        reasoning: verdict.reasoning,
-        key_evidence: verdict.key_evidence,
-        suggested_fix: verdict.suggested_fix,
-        tool_calls: result.toolCalls,
-        input_tokens: result.inputTokens,
-        output_tokens: result.outputTokens,
-      });
 
       const cachedAt = new Date().toISOString();
       setFindingStates((prev) =>
@@ -198,7 +129,7 @@ function MainScreen({
 
       return verdict;
     },
-    [findingStates, config, memory],
+    [findingStates, config, orchestrator],
   );
 
   const startBatchQueue = useCallback(
@@ -255,24 +186,20 @@ function MainScreen({
 
       const priorExchanges = followUpExchanges.get(selectedIndex) ?? [];
 
-      const answer = await runFollowUp({
-        finding: state.finding,
-        previousVerdict: state.verdict,
+      const answer = await orchestrator.followUp(
+        state.finding,
+        state.verdict,
         question,
         priorExchanges,
-        provider: config.provider,
-        model: config.model,
-        onEvent: (event) => {
+        config,
+        (event) => {
           setFindingStates((prev) =>
             prev.map((s, i) =>
               i === selectedIndex ? { ...s, events: [...s.events, event] } : s,
             ),
           );
         },
-        apiKey: config.apiKey,
-        baseUrl: config.baseUrl,
-        reasoningEffort: config.reasoningEffort,
-      });
+      );
 
       setFollowUpExchanges((prev) => {
         const next = new Map(prev);
@@ -296,7 +223,7 @@ function MainScreen({
   const promoteFilteredBatch = useCallback(async (indices: number[]) => {
     if (isTriaging || viewMode !== "filtered" || indices.length === 0) return;
     const sorted = [...indices].sort((a, b) => a - b);
-    const itemsToPromote = sorted.map((i) => filteredFindings[i]).filter((item): item is { finding: Finding; reason: string } => item != null);
+    const itemsToPromote = sorted.map((i) => filteredFindings[i]).filter((item): item is FilteredFinding => item != null);
     if (itemsToPromote.length === 0) return;
 
     const newStates: FindingState[] = itemsToPromote.map((item) => {
@@ -358,7 +285,7 @@ function MainScreen({
   const restoreDismissedBatch = useCallback((indices: number[]) => {
     if (viewMode !== "dismissed" || indices.length === 0) return;
     const sorted = [...indices].sort((a, b) => a - b);
-    const items = sorted.map((i) => dismissedFindings[i]).filter((item): item is { finding: Finding; reason: string } => item != null);
+    const items = sorted.map((i) => dismissedFindings[i]).filter((item): item is FilteredFinding => item != null);
     if (items.length === 0) return;
     setFilteredFindings((prev) => [...prev, ...items]);
     setDismissedFindings((prev) => prev.filter((_, i) => !sorted.includes(i)));
@@ -590,12 +517,12 @@ function MainScreen({
 }
 
 function App({
+  orchestrator,
   initialConfig,
-  memory,
   projectConfig,
 }: {
+  orchestrator: TriageOrchestrator;
   initialConfig: Partial<AppConfig>;
-  memory: MemoryStore;
   projectConfig: ProjectConfig;
 }) {
   // Use saved config to fill in missing CLI args
@@ -619,8 +546,8 @@ function App({
       ? (effectiveConfig as AppConfig)
       : null,
   );
-  const [findings, setFindings] = useState<Finding[]>([]);
-  const [filteredFindings, setFilteredFindings] = useState<{ finding: Finding; reason: string }[]>([]);
+  const [findings, setFindings] = useState<FindingState[]>([]);
+  const [filteredFindings, setFilteredFindings] = useState<FilteredFinding[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [switchingProvider, setSwitchingProvider] = useState(false);
 
@@ -652,39 +579,33 @@ function App({
         return;
       }
 
-      const filePath = resolve(result.findingsPath);
-      let raw: unknown;
       try {
-        raw = JSON.parse(readFileSync(filePath, "utf-8"));
+        const loaded = orchestrator.loadFindings(resolve(result.findingsPath));
+        setConfig(fullConfig);
+        setFindings(loaded.active);
+        setFilteredFindings(loaded.filtered);
+        setTotalCount(loaded.total);
+        setScreen("main");
       } catch {
-        // File not found — try relative to cwd
-        try {
-          raw = JSON.parse(readFileSync(resolve(process.cwd(), result.findingsPath), "utf-8"));
-        } catch {
-          return; // stay on setup — TODO: show error
-        }
+        return; // stay on setup
       }
-
-      const allFindings = parseSemgrepOutput(raw);
-      const active: Finding[] = [];
-      const filtered: { finding: Finding; reason: string }[] = [];
-      for (const f of allFindings) {
-        const result = prefilterFinding(f);
-        if (result.passed) {
-          active.push(f);
-        } else {
-          filtered.push({ finding: f, reason: result.reason ?? "Unknown" });
-        }
-      }
-
-      setConfig(fullConfig);
-      setFindings(active);
-      setFilteredFindings(filtered);
-      setTotalCount(allFindings.length);
-      setScreen("main");
     },
-    [initialConfig, switchingProvider, projectConfig],
+    [initialConfig, switchingProvider, projectConfig, orchestrator],
   );
+
+  // Auto-load findings when config is already complete on startup
+  useEffect(() => {
+    if (screen === "main" && config && findings.length === 0 && totalCount === 0) {
+      try {
+        const loaded = orchestrator.loadFindings(resolve(config.findingsPath));
+        setFindings(loaded.active);
+        setFilteredFindings(loaded.filtered);
+        setTotalCount(loaded.total);
+      } catch {
+        setScreen("setup");
+      }
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (screen === "setup") {
     return <SetupScreen cwd={process.cwd()} projectConfig={projectConfig} onComplete={handleSetupComplete} startStep={switchingProvider ? "provider" : undefined} />;
@@ -696,11 +617,12 @@ function App({
 
   return (
     <MainScreen
-      findings={findings}
+      findings={findings.map((s) => s.finding)}
+      findingStatesInit={findings}
       filteredFindings={filteredFindings}
       totalCount={totalCount}
       config={config}
-      memory={memory}
+      orchestrator={orchestrator}
       onSwitchProvider={handleSwitchProvider}
       initialView={findings.length === 0 ? "filtered" : "active"}
     />
@@ -708,12 +630,12 @@ function App({
 }
 
 export async function runTui(
+  orchestrator: TriageOrchestrator,
   initialConfig: Partial<AppConfig>,
-  memory: MemoryStore,
   projectConfig: ProjectConfig,
 ): Promise<void> {
   const app = withFullScreen(
-    <App initialConfig={initialConfig} memory={memory} projectConfig={projectConfig} />,
+    <App orchestrator={orchestrator} initialConfig={initialConfig} projectConfig={projectConfig} />,
   );
   await app.start();
   await app.waitUntilExit();
