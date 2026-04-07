@@ -392,7 +392,10 @@ function MainScreen({
       : dismissedFindings.length;
 
   useInput((input, key) => {
-    if (showFollowUp) return;
+    if (showFollowUp) {
+      if (key.escape) setShowFollowUp(false);
+      return;
+    }
     if (showCommandPanel) return; // Command panel captures all input
 
     if (input === "q") {

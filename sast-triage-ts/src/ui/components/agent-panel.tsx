@@ -369,7 +369,7 @@ export function AgentPanel({
   const headerHeight = finding ? findingHeaderHeight(finding, w) : 0;
 
   // Footer reservation (interactive elements, always visible below viewport)
-  const footerRows = permissionEvent ? 4 : (showFollowUpInput ? 2 : 0);
+  const footerRows = permissionEvent ? 4 : (showFollowUpInput ? 4 : 0);
 
   // Content budget after padding={1} top+bottom, minus finding header
   const contentHeight = Math.max(1, height - 2 - headerHeight);
@@ -453,14 +453,17 @@ export function AgentPanel({
         </Box>
       )}
       {showFollowUpInput && onFollowUp && (
-        <Box paddingX={2}>
-          <Text bold color="cyan">&gt; </Text>
-          <TextInput
-            value={followUpText}
-            onChange={setFollowUpText}
-            onSubmit={(v) => { if (v.trim()) { onFollowUp(v.trim()); setFollowUpText(""); } }}
-            placeholder="Ask a follow-up question..."
-          />
+        <Box flexDirection="column" paddingX={1}>
+          <Box borderStyle="round" borderColor="cyan" paddingX={1}>
+            <Text bold color="cyan">&gt; </Text>
+            <TextInput
+              value={followUpText}
+              onChange={setFollowUpText}
+              onSubmit={(v) => { if (v.trim()) { onFollowUp(v.trim()); setFollowUpText(""); } }}
+              placeholder="Ask a follow-up question..."
+            />
+          </Box>
+          <Text dimColor>  Enter submit · Esc cancel</Text>
         </Box>
       )}
     </Box>
