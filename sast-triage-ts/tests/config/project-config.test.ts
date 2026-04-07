@@ -120,4 +120,18 @@ describe("ProjectConfig", () => {
     expect(cfg.reasoningEffort).toBeUndefined();
     expect(cfg.allowedPaths).toEqual([]);
   });
+
+  it("defaults concurrency to 1", () => {
+    const cfg = new ProjectConfig(workspace);
+    expect(cfg.concurrency).toBe(1);
+  });
+
+  it("persists and loads concurrency setting", () => {
+    const cfg = new ProjectConfig(workspace);
+    cfg.concurrency = 5;
+    cfg.save();
+
+    const cfg2 = new ProjectConfig(workspace);
+    expect(cfg2.concurrency).toBe(5);
+  });
 });

@@ -24,6 +24,7 @@ export class ProjectConfig {
   memoryDbPath: string;
   reasoningEffort: ReasoningEffort | undefined;
   allowedPaths: string[] = [];
+  concurrency = 1;
   savedApiKeys: Partial<Record<ProviderName, string>> = {};
 
   constructor(workspace: string) {
@@ -89,6 +90,13 @@ export class ProjectConfig {
         (p): p is string => typeof p === "string",
       );
     }
+
+    const triage = data.triage as Record<string, unknown> | undefined;
+    if (triage) {
+      if (typeof triage.concurrency === "number" && triage.concurrency >= 1 && triage.concurrency <= 10) {
+        this.concurrency = triage.concurrency;
+      }
+    }
   }
 
   save(): void {
@@ -113,6 +121,7 @@ export class ProjectConfig {
       ...(this.allowedPaths.length > 0
         ? { workspace: { allowed_paths: this.allowedPaths } }
         : {}),
+      ...(this.concurrency > 1 ? { triage: { concurrency: this.concurrency } } : {}),
     };
     writeFileSync(this.tomlPath, stringify(data) + "\n");
   }

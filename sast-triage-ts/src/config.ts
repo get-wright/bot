@@ -12,6 +12,7 @@ export interface AppConfig {
   baseUrl?: string;
   reasoningEffort?: ReasoningEffort;
   allowedPaths?: string[];
+  concurrency: number;
 }
 
 export function resolveConfig(opts: {
@@ -22,6 +23,7 @@ export function resolveConfig(opts: {
   allowBash?: boolean;
   maxSteps?: number;
   memoryDb?: string;
+  concurrency?: number;
 }): Partial<AppConfig> {
   return {
     findingsPath: opts.findingsPath || undefined,
@@ -31,5 +33,6 @@ export function resolveConfig(opts: {
     allowBash: opts.allowBash ?? false,
     maxSteps: opts.maxSteps ?? 15,
     memoryDb: opts.memoryDb ?? ".sast-triage/memory.db",
+    concurrency: opts.concurrency ?? 1,
   };
 }
