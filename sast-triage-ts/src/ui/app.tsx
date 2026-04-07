@@ -79,7 +79,7 @@ function MainScreen({
   const [followUpExchanges, setFollowUpExchanges] = useState<Map<number, FollowUpExchange[]>>(new Map());
   const [tracingActive, setTracingActive] = useState(isTracingEnabled());
   const [notification, setNotification] = useState<string | undefined>();
-  const stopQueueRef = useRef(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
   const pendingPermissionRef = useRef<((decision: PermissionDecision) => void) | null>(null);
 
   const isTriaging = triagingIndices.size > 0;
@@ -144,7 +144,6 @@ function MainScreen({
   const startBatchQueue = useCallback(
     async (indices: number[]) => {
       if (isTriaging || indices.length === 0) return;
-      stopQueueRef.current = false;
 
       const items = indices
         .map((idx) => {
@@ -155,6 +154,9 @@ function MainScreen({
         .filter((item): item is NonNullable<typeof item> => item != null);
 
       if (items.length === 0) return;
+
+      // Eagerly mark all batch items as triaging
+      setTriagingIndices(new Set(items.map((item) => item.idx)));
 
       // Clear events and mark as in_progress
       setFindingStates((prev) =>
@@ -171,81 +173,75 @@ function MainScreen({
         activeIndices: new Set(),
       });
 
-      const abortController = new AbortController();
+      const ac = new AbortController();
+      abortControllerRef.current = ac;
 
-      // Watch stopQueueRef to trigger abort
-      const checkAbort = setInterval(() => {
-        if (stopQueueRef.current) {
-          abortController.abort();
-          clearInterval(checkAbort);
-        }
-      }, 100);
-
-      await orchestrator.triageBatch(
-        items.map(({ finding, fingerprint }) => ({ finding, fingerprint })),
-        config,
-        concurrency,
-        (fingerprint, result) => {
-          const item = items.find((i) => i.fingerprint === fingerprint);
-          if (!item) return;
-          const cachedAt = new Date().toISOString();
-          setFindingStates((prev) =>
-            prev.map((s, i) =>
-              i === item.idx
-                ? { ...s, verdict: result.verdict, cachedAt, entry: { ...s.entry, status: result.verdict.verdict as FindingStatus } }
-                : s,
-            ),
-          );
-          setTriagingIndices((prev) => {
-            const next = new Set(prev);
-            next.delete(item.idx);
-            return next;
-          });
-          setQueueState((prev) =>
-            prev ? {
-              ...prev,
-              completed: prev.completed + 1,
-              activeIndices: new Set([...prev.activeIndices].filter((i) => i !== item.idx)),
-            } : null,
-          );
-          setSessionUsage((prev) => ({
-            inputTokens: prev.inputTokens + result.inputTokens,
-            outputTokens: prev.outputTokens + result.outputTokens,
-            totalTokens: prev.totalTokens + result.inputTokens + result.outputTokens,
-          }));
-        },
-        abortController.signal,
-        (fingerprint, event) => {
-          const item = items.find((i) => i.fingerprint === fingerprint);
-          if (!item) return;
-
-          if (event.type === "tool_start") {
-            setTriagingIndices((prev) => new Set(prev).add(item.idx));
-            setQueueState((prev) =>
-              prev ? { ...prev, activeIndices: new Set(prev.activeIndices).add(item.idx) } : null,
+      try {
+        await orchestrator.triageBatch(
+          items.map(({ finding, fingerprint }) => ({ finding, fingerprint })),
+          config,
+          concurrency,
+          (fingerprint, result) => {
+            const item = items.find((i) => i.fingerprint === fingerprint);
+            if (!item) return;
+            const cachedAt = new Date().toISOString();
+            setFindingStates((prev) =>
+              prev.map((s, i) =>
+                i === item.idx
+                  ? { ...s, verdict: result.verdict, cachedAt, entry: { ...s.entry, status: result.verdict.verdict as FindingStatus } }
+                  : s,
+              ),
             );
-          }
-
-          if (event.type === "usage") {
-            setCurrentUsage({
-              inputTokens: event.inputTokens,
-              outputTokens: event.outputTokens,
-              totalTokens: event.totalTokens,
+            setTriagingIndices((prev) => {
+              const next = new Set(prev);
+              next.delete(item.idx);
+              return next;
             });
-          }
-          if (event.type === "permission_request") {
-            pendingPermissionRef.current = event.resolve;
-          }
-          setFindingStates((prev) =>
-            prev.map((s, i) => (i === item.idx ? { ...s, events: [...s.events, event] } : s)),
-          );
-        },
-      );
+            setQueueState((prev) =>
+              prev ? {
+                ...prev,
+                completed: prev.completed + 1,
+                activeIndices: new Set([...prev.activeIndices].filter((i) => i !== item.idx)),
+              } : null,
+            );
+            setSessionUsage((prev) => ({
+              inputTokens: prev.inputTokens + result.inputTokens,
+              outputTokens: prev.outputTokens + result.outputTokens,
+              totalTokens: prev.totalTokens + result.inputTokens + result.outputTokens,
+            }));
+          },
+          ac.signal,
+          (fingerprint, event) => {
+            const item = items.find((i) => i.fingerprint === fingerprint);
+            if (!item) return;
 
-      clearInterval(checkAbort);
-      setQueueState(null);
-      setTriagingIndices(new Set());
-      setSelectedIndices(new Set());
+            if (event.type === "tool_start") {
+              setQueueState((prev) =>
+                prev ? { ...prev, activeIndices: new Set(prev.activeIndices).add(item.idx) } : null,
+              );
+            }
+
+            if (event.type === "usage") {
+              setCurrentUsage({
+                inputTokens: event.inputTokens,
+                outputTokens: event.outputTokens,
+                totalTokens: event.totalTokens,
+              });
+            }
+            if (event.type === "permission_request") {
+              pendingPermissionRef.current = event.resolve;
+            }
+            setFindingStates((prev) =>
+              prev.map((s, i) => (i === item.idx ? { ...s, events: [...s.events, event] } : s)),
+            );
+          },
+        );
+      } finally {
+        abortControllerRef.current = null;
+        setQueueState(null);
+        setTriagingIndices(new Set());
+        setSelectedIndices(new Set());
+      }
     },
     [isTriaging, findingStates, config, orchestrator, concurrency],
   );
@@ -358,11 +354,6 @@ function MainScreen({
     startBatchQueue(newIndices);
   }, [isTriaging, viewMode, filteredFindings, findingStates.length, startBatchQueue]);
 
-  // Promote a single filtered finding (fallback when no selection)
-  const promoteFiltered = useCallback(async () => {
-    await promoteFilteredBatch([selectedIndex]);
-  }, [selectedIndex, promoteFilteredBatch]);
-
   // Dismiss a filtered finding (move to dismissed list)
   const dismissFiltered = useCallback(() => {
     if (viewMode !== "filtered") return;
@@ -388,10 +379,6 @@ function MainScreen({
       setSelectedIndex(Math.max(0, dismissedFindings.length - items.length - 1));
     }
   }, [viewMode, selectedIndex, dismissedFindings]);
-
-  const restoreDismissed = useCallback(() => {
-    restoreDismissedBatch([selectedIndex]);
-  }, [selectedIndex, restoreDismissedBatch]);
 
   const listLength = viewMode === "active"
     ? findingStates.length
@@ -484,8 +471,8 @@ function MainScreen({
     }
 
     // Esc: stop batch queue
-    if (key.escape && queueState) {
-      stopQueueRef.current = true;
+    if (key.escape && abortControllerRef.current) {
+      abortControllerRef.current.abort();
       return;
     }
 
