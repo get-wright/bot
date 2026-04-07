@@ -31,7 +31,7 @@ export function resolveConfig(opts: {
     model: opts.model || undefined,
     headless: opts.headless ?? false,
     allowBash: opts.allowBash ?? false,
-    maxSteps: opts.maxSteps ?? 15,
+    maxSteps: opts.maxSteps ?? 25,
     memoryDb: opts.memoryDb ?? ".sast-triage/memory.db",
     concurrency: opts.concurrency ?? 1,
   };

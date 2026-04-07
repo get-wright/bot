@@ -21,7 +21,7 @@ program
   .option("--model <model>", "Model ID")
   .option("--headless", "Output NDJSON to stdout instead of TUI", false)
   .option("--allow-bash", "Enable bash tool for agent", false)
-  .option("--max-steps <n>", "Max agent loop steps per finding", "15")
+  .option("--max-steps <n>", "Max agent loop steps per finding", "25")
   .option("--memory-db <path>", "SQLite memory DB path", ".sast-triage/memory.db")
   .option("--effort <level>", "Reasoning effort: low, medium, high")
   .option("--concurrency <n>", "Max concurrent agent loops for batch audit", "1")
