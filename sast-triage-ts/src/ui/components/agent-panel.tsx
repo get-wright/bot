@@ -188,7 +188,7 @@ function buildLines(params: {
 
   if (verdict) {
     const { color, label } = verdictStyle(verdict.verdict);
-    const cw = Math.max(10, w - 2); // reserve "│ " prefix
+    const cw = Math.max(10, w - 4); // reserve "  │ " prefix
 
     if (lines.length > 0) lines.push({ kind: "blank" });
     lines.push({ kind: "verdict-head", label, color });
@@ -274,30 +274,30 @@ function renderLine(line: Line, w: number, key: string): React.ReactElement {
     case "verdict-head":
       return (
         <Box key={key}>
-          <Text color={line.color}>│ </Text>
+          <Text color={line.color}>  │ </Text>
           <Text color={line.color} bold>{line.label}</Text>
         </Box>
       );
     case "verdict-blank":
-      return <Box key={key}><Text color={line.color}>│</Text></Box>;
+      return <Box key={key}><Text color={line.color}>  │</Text></Box>;
     case "verdict-text":
       return (
         <Box key={key}>
-          <Text color={line.color}>│ </Text>
+          <Text color={line.color}>  │ </Text>
           <Text>{line.text}</Text>
         </Box>
       );
     case "verdict-label":
       return (
         <Box key={key}>
-          <Text color={line.color}>│ </Text>
+          <Text color={line.color}>  │ </Text>
           <Text bold dimColor>{line.text}</Text>
         </Box>
       );
     case "verdict-evidence":
       return (
         <Box key={key}>
-          <Text color={line.color}>│ </Text>
+          <Text color={line.color}>  │ </Text>
           <Text dimColor>{line.text}</Text>
         </Box>
       );
