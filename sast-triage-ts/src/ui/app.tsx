@@ -14,6 +14,8 @@ import { Sidebar, type UsageStats } from "./components/sidebar.js";
 import { SetupScreen, type SetupResult } from "./components/setup-screen.js";
 import { ProjectConfig } from "../config/project-config.js";
 import { FindingDetail } from "./components/finding-detail.js";
+import { initTracing, isTracingEnabled } from "../tracing.js";
+import { CommandPanel, type CommandDef } from "./components/command-panel.js";
 
 function useTerminalSize(): { columns: number; rows: number } {
   const [size, setSize] = useState({
@@ -44,6 +46,7 @@ function MainScreen({
   orchestrator,
   onSwitchProvider,
   initialView = "active",
+  projectConfig,
 }: {
   findings: Finding[];
   findingStatesInit: FindingState[];
@@ -53,6 +56,7 @@ function MainScreen({
   orchestrator: TriageOrchestrator;
   onSwitchProvider?: () => void;
   initialView?: "active" | "filtered" | "dismissed";
+  projectConfig?: ProjectConfig;
 }) {
   const { exit } = useApp();
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -60,20 +64,25 @@ function MainScreen({
   const [filteredFindings, setFilteredFindings] = useState(initialFilteredFindings);
   const [dismissedFindings, setDismissedFindings] = useState<FilteredFinding[]>([]);
   const [findingStates, setFindingStates] = useState<FindingState[]>(findingStatesInit);
-  const [isTriaging, setIsTriaging] = useState(false);
+  const [triagingIndices, setTriagingIndices] = useState<Set<number>>(new Set());
+  const [showCommandPanel, setShowCommandPanel] = useState(false);
+  const [concurrency, setConcurrency] = useState(config.concurrency ?? 1);
   const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
   const [queueState, setQueueState] = useState<{
     items: number[];
-    currentIndex: number;
-    isRunning: boolean;
+    completed: number;
+    activeIndices: Set<number>;
   } | null>(null);
   const [sessionUsage, setSessionUsage] = useState<UsageStats>({ inputTokens: 0, outputTokens: 0, totalTokens: 0 });
   const [currentUsage, setCurrentUsage] = useState<UsageStats | undefined>();
   const [showFollowUp, setShowFollowUp] = useState(false);
   const [followUpExchanges, setFollowUpExchanges] = useState<Map<number, FollowUpExchange[]>>(new Map());
+  const [tracingActive, setTracingActive] = useState(isTracingEnabled());
+  const [notification, setNotification] = useState<string | undefined>();
   const stopQueueRef = useRef(false);
   const pendingPermissionRef = useRef<((decision: PermissionDecision) => void) | null>(null);
 
+  const isTriaging = triagingIndices.size > 0;
   const triaged = findingStates.filter((s) => s.verdict != null).length;
   const selected = findingStates[selectedIndex];
 
@@ -135,26 +144,114 @@ function MainScreen({
   const startBatchQueue = useCallback(
     async (indices: number[]) => {
       if (isTriaging || indices.length === 0) return;
-      setIsTriaging(true);
       stopQueueRef.current = false;
 
-      setQueueState({ items: indices, currentIndex: 0, isRunning: true });
+      const items = indices
+        .map((idx) => {
+          const state = findingStates[idx];
+          if (!state || state.verdict) return null;
+          return { idx, finding: state.finding, fingerprint: state.entry.fingerprint };
+        })
+        .filter((item): item is NonNullable<typeof item> => item != null);
 
-      for (let qi = 0; qi < indices.length; qi++) {
-        if (stopQueueRef.current) break;
-        setQueueState({ items: indices, currentIndex: qi, isRunning: true });
-        await triageIndex(indices[qi]!);
-      }
+      if (items.length === 0) return;
 
+      // Clear events and mark as in_progress
+      setFindingStates((prev) =>
+        prev.map((s, i) =>
+          items.some((item) => item.idx === i)
+            ? { ...s, cachedAt: undefined, entry: { ...s.entry, status: "in_progress" as FindingStatus }, events: [] }
+            : s,
+        ),
+      );
+
+      setQueueState({
+        items: items.map((item) => item.idx),
+        completed: 0,
+        activeIndices: new Set(),
+      });
+
+      const abortController = new AbortController();
+
+      // Watch stopQueueRef to trigger abort
+      const checkAbort = setInterval(() => {
+        if (stopQueueRef.current) {
+          abortController.abort();
+          clearInterval(checkAbort);
+        }
+      }, 100);
+
+      await orchestrator.triageBatch(
+        items.map(({ finding, fingerprint }) => ({ finding, fingerprint })),
+        config,
+        concurrency,
+        (fingerprint, result) => {
+          const item = items.find((i) => i.fingerprint === fingerprint);
+          if (!item) return;
+          const cachedAt = new Date().toISOString();
+          setFindingStates((prev) =>
+            prev.map((s, i) =>
+              i === item.idx
+                ? { ...s, verdict: result.verdict, cachedAt, entry: { ...s.entry, status: result.verdict.verdict as FindingStatus } }
+                : s,
+            ),
+          );
+          setTriagingIndices((prev) => {
+            const next = new Set(prev);
+            next.delete(item.idx);
+            return next;
+          });
+          setQueueState((prev) =>
+            prev ? {
+              ...prev,
+              completed: prev.completed + 1,
+              activeIndices: new Set([...prev.activeIndices].filter((i) => i !== item.idx)),
+            } : null,
+          );
+          setSessionUsage((prev) => ({
+            inputTokens: prev.inputTokens + result.inputTokens,
+            outputTokens: prev.outputTokens + result.outputTokens,
+            totalTokens: prev.totalTokens + result.inputTokens + result.outputTokens,
+          }));
+        },
+        abortController.signal,
+        (fingerprint, event) => {
+          const item = items.find((i) => i.fingerprint === fingerprint);
+          if (!item) return;
+
+          if (event.type === "tool_start") {
+            setTriagingIndices((prev) => new Set(prev).add(item.idx));
+            setQueueState((prev) =>
+              prev ? { ...prev, activeIndices: new Set(prev.activeIndices).add(item.idx) } : null,
+            );
+          }
+
+          if (event.type === "usage") {
+            setCurrentUsage({
+              inputTokens: event.inputTokens,
+              outputTokens: event.outputTokens,
+              totalTokens: event.totalTokens,
+            });
+          }
+          if (event.type === "permission_request") {
+            pendingPermissionRef.current = event.resolve;
+          }
+          setFindingStates((prev) =>
+            prev.map((s, i) => (i === item.idx ? { ...s, events: [...s.events, event] } : s)),
+          );
+        },
+      );
+
+      clearInterval(checkAbort);
       setQueueState(null);
-      setIsTriaging(false);
+      setTriagingIndices(new Set());
       setSelectedIndices(new Set());
     },
-    [isTriaging, triageIndex],
+    [isTriaging, findingStates, config, orchestrator, concurrency],
   );
 
   const reauditCurrent = useCallback(async () => {
-    if (isTriaging) return;
+    if (triagingIndices.has(selectedIndex)) return;
     const state = findingStates[selectedIndex];
     if (!state || !state.verdict) return;
 
@@ -171,10 +268,14 @@ function MainScreen({
       return next;
     });
 
-    setIsTriaging(true);
+    setTriagingIndices((prev) => new Set(prev).add(selectedIndex));
     await triageIndex(selectedIndex);
-    setIsTriaging(false);
-  }, [selectedIndex, findingStates, isTriaging, triageIndex]);
+    setTriagingIndices((prev) => {
+      const next = new Set(prev);
+      next.delete(selectedIndex);
+      return next;
+    });
+  }, [selectedIndex, findingStates, triagingIndices, triageIndex]);
 
   const handleFollowUp = useCallback(
     async (question: string) => {
@@ -182,7 +283,7 @@ function MainScreen({
       if (!state?.verdict) return;
 
       setShowFollowUp(false);
-      setIsTriaging(true);
+      setTriagingIndices((prev) => new Set(prev).add(selectedIndex));
 
       const priorExchanges = followUpExchanges.get(selectedIndex) ?? [];
 
@@ -207,7 +308,11 @@ function MainScreen({
         next.set(selectedIndex, [...existing, { question, answer }]);
         return next;
       });
-      setIsTriaging(false);
+      setTriagingIndices((prev) => {
+        const next = new Set(prev);
+        next.delete(selectedIndex);
+        return next;
+      });
     },
     [selectedIndex, findingStates, followUpExchanges, config],
   );
@@ -219,7 +324,7 @@ function MainScreen({
     }
   }, []);
 
-  // Promote selected filtered findings to active and triage them sequentially
+  // Promote selected filtered findings to active and triage them concurrently
   const promoteFilteredBatch = useCallback(async (indices: number[]) => {
     if (isTriaging || viewMode !== "filtered" || indices.length === 0) return;
     const sorted = [...indices].sort((a, b) => a - b);
@@ -244,25 +349,14 @@ function MainScreen({
     const startIdx = findingStates.length;
     const newIndices = newStates.map((_, i) => startIdx + i);
 
-    // Remove promoted from filtered, append to active
     setFilteredFindings((prev) => prev.filter((_, i) => !sorted.includes(i)));
     setFindingStates((prev) => [...prev, ...newStates]);
     setSelectedIndices(new Set());
     setViewMode("active");
     setSelectedIndex(startIdx);
 
-    // Triage all newly-promoted findings
-    setIsTriaging(true);
-    stopQueueRef.current = false;
-    setQueueState({ items: newIndices, currentIndex: 0, isRunning: true });
-    for (let qi = 0; qi < newIndices.length; qi++) {
-      if (stopQueueRef.current) break;
-      setQueueState({ items: newIndices, currentIndex: qi, isRunning: true });
-      await triageIndex(newIndices[qi]!);
-    }
-    setQueueState(null);
-    setIsTriaging(false);
-  }, [isTriaging, viewMode, filteredFindings, findingStates.length, triageIndex]);
+    startBatchQueue(newIndices);
+  }, [isTriaging, viewMode, filteredFindings, findingStates.length, startBatchQueue]);
 
   // Promote a single filtered finding (fallback when no selection)
   const promoteFiltered = useCallback(async () => {
@@ -307,6 +401,7 @@ function MainScreen({
 
   useInput((input, key) => {
     if (showFollowUp) return;
+    if (showCommandPanel) return; // Command panel captures all input
 
     if (input === "q") {
       exit();
@@ -318,6 +413,11 @@ function MainScreen({
       if (input === "a") { handlePermissionResolve("once"); return; }
       if (input === "d") { handlePermissionResolve("always"); return; }
       if (input === "x") { handlePermissionResolve("deny"); return; }
+      return;
+    }
+
+    if (input === "m" && !isTriaging) {
+      setShowCommandPanel(true);
       return;
     }
 
@@ -384,7 +484,7 @@ function MainScreen({
     }
 
     // Esc: stop batch queue
-    if (key.escape && queueState?.isRunning) {
+    if (key.escape && queueState) {
       stopQueueRef.current = true;
       return;
     }
@@ -406,6 +506,31 @@ function MainScreen({
       onSwitchProvider?.();
       return;
     }
+
+    // Ctrl+L: toggle LangSmith tracing
+    if (input === "l" && key.ctrl && !isTriaging) {
+      if (tracingActive) {
+        setNotification("LangSmith tracing already active");
+        setTimeout(() => setNotification(undefined), 3000);
+        return;
+      }
+      if (!process.env.LANGSMITH_API_KEY) {
+        setNotification("Set LANGSMITH_API_KEY env var first");
+        setTimeout(() => setNotification(undefined), 4000);
+        return;
+      }
+      setNotification("Enabling LangSmith tracing...");
+      initTracing().then((ok) => {
+        if (ok) {
+          setTracingActive(true);
+          setNotification("LangSmith tracing enabled");
+        } else {
+          setNotification("Failed to enable tracing — check logs");
+        }
+        setTimeout(() => setNotification(undefined), 3000);
+      });
+      return;
+    }
   });
 
   const { columns: termWidth, rows: termHeight } = useTerminalSize();
@@ -414,8 +539,69 @@ function MainScreen({
   const tableWidth = Math.floor(termWidth * 0.28);
   const panelWidth = termWidth - tableWidth - sidebarWidth;
 
+  const mainHeight = notification ? termHeight - 2 : termHeight - 1;
+
+  const commandDefs: CommandDef[] = [
+    { label: "Triage selected", shortcut: "Enter", action: () => {
+      const indices = selectedIndices.size > 0
+        ? [...selectedIndices].filter((i) => !findingStates[i]!.verdict).sort((a, b) => a - b)
+        : [selectedIndex];
+      startBatchQueue(indices);
+    }},
+    { label: "Toggle select", shortcut: "Space", action: () => {
+      setSelectedIndices((prev) => {
+        const next = new Set(prev);
+        if (next.has(selectedIndex)) next.delete(selectedIndex);
+        else next.add(selectedIndex);
+        return next;
+      });
+    }},
+    { label: "Select all", shortcut: "a", action: () => {
+      setSelectedIndices(new Set(findingStates.map((_, i) => i).filter((i) => !findingStates[i]!.verdict)));
+    }},
+    { label: "Switch view", shortcut: "Tab", action: () => {
+      const views: Array<"active" | "filtered" | "dismissed"> = ["active", "filtered", "dismissed"];
+      setViewMode(views[(views.indexOf(viewMode) + 1) % views.length]!);
+      setSelectedIndex(0);
+      setSelectedIndices(new Set());
+    }},
+    { label: "Re-audit", shortcut: "r", action: () => { reauditCurrent(); }},
+    { label: "Follow-up", shortcut: "f", action: () => { if (selected?.verdict) setShowFollowUp(true); }},
+    { label: "Switch provider", shortcut: "Ctrl+P", action: () => { onSwitchProvider?.(); }},
+    { label: "Toggle tracing", shortcut: "Ctrl+L", action: () => {
+      if (!tracingActive && process.env.LANGSMITH_API_KEY) {
+        initTracing().then((ok) => {
+          if (ok) setTracingActive(true);
+        });
+      }
+    }},
+    { label: "Quit", shortcut: "q", action: () => { exit(); }},
+  ];
+
+  if (showCommandPanel) {
+    return (
+      <Box width={termWidth} height={termHeight - 1}>
+        <CommandPanel
+          commands={commandDefs}
+          concurrency={concurrency}
+          onConcurrencyChange={(value) => {
+            setConcurrency(value);
+            if (projectConfig) {
+              projectConfig.concurrency = value;
+              projectConfig.save();
+            }
+          }}
+          onClose={() => setShowCommandPanel(false)}
+          width={termWidth}
+          height={termHeight - 1}
+        />
+      </Box>
+    );
+  }
+
   return (
-    <Box flexDirection="row" width={termWidth} height={termHeight - 1}>
+    <Box flexDirection="column" width={termWidth} height={termHeight - 1}>
+    <Box flexDirection="row" width={termWidth} height={mainHeight}>
       <Box width={tableWidth} flexDirection="column" borderStyle="single" overflow="hidden">
         {viewMode === "active" ? (
           <FindingsTable
@@ -440,14 +626,14 @@ function MainScreen({
               const fp = `${viewMode}-${item.finding.check_id}-${item.finding.path}-${item.finding.start.line}`;
               const fileLine = `${item.finding.path}:${item.finding.start.line}`;
               const rule = item.finding.check_id.split(".").pop() ?? "";
-              const cw = tableWidth - 6; // padding + marker
+              const cw = tableWidth - 7; // padding + marker
               const line = `${fileLine} ${rule}`;
               const clipped = line.length > cw ? line.slice(0, cw - 1) + "…" : line;
               const marker = isMultiSelected ? "●" : " ";
               return (
                 <Box key={fp}>
                   <Text dimColor={!isSelected}>
-                    {isSelected ? ">" : " "}{marker} {clipped}
+                    {isSelected ? ">" : " "} {marker} {clipped}
                   </Text>
                 </Box>
               );
@@ -476,7 +662,8 @@ function MainScreen({
         ) : selected ? (
           <AgentPanel
             events={selected.events}
-            isActive={isTriaging && selectedIndex === findingStates.indexOf(selected)}
+            finding={selected.finding}
+            isActive={triagingIndices.has(selectedIndex)}
             width={panelWidth - 4}
             height={termHeight - 3}
             showFollowUpInput={showFollowUp}
@@ -500,18 +687,25 @@ function MainScreen({
             nr={findingStates.filter((s) => s.verdict?.verdict === "needs_review").length}
             provider={config.provider}
             model={config.model}
-            queue={queueState ? queueState.items.map((idx, qi) => ({
+            queue={queueState ? [...queueState.activeIndices].map((idx) => ({
               label: findingStates[idx]!.finding.check_id.split(".").pop() ?? "",
-              status: qi < queueState.currentIndex ? "done" as const
-                : qi === queueState.currentIndex ? "active" as const
-                : "pending" as const,
-              verdict: findingStates[idx]!.verdict?.verdict,
+              status: "active" as const,
             })) : undefined}
+            queueDone={queueState?.completed}
+            queueTotal={queueState?.items.length}
             sessionUsage={sessionUsage}
             currentUsage={currentUsage}
+            tracingActive={tracingActive}
+            width={sidebarWidth}
           />
         </Box>
       )}
+    </Box>
+    {notification && (
+      <Box width={termWidth} height={1}>
+        <Text color="cyan" bold> {notification}</Text>
+      </Box>
+    )}
     </Box>
   );
 }
@@ -637,6 +831,7 @@ function App({
       orchestrator={orchestrator}
       onSwitchProvider={handleSwitchProvider}
       initialView={findings.length === 0 ? "filtered" : "active"}
+      projectConfig={projectConfig}
     />
   );
 }
