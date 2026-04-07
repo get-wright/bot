@@ -8,6 +8,7 @@ import { MemoryStore } from "./memory/store.js";
 import { ProjectConfig } from "./config/project-config.js";
 import { TriageOrchestrator } from "./orchestrator.js";
 import { initLogger, log } from "./logger.js";
+import { initTracing, hasLangSmithConfig } from "./tracing.js";
 
 const program = new Command();
 
@@ -23,12 +24,24 @@ program
   .option("--max-steps <n>", "Max agent loop steps per finding", "15")
   .option("--memory-db <path>", "SQLite memory DB path", ".sast-triage/memory.db")
   .option("--effort <level>", "Reasoning effort: low, medium, high")
+  .option("--concurrency <n>", "Max concurrent agent loops for batch audit", "1")
   .option("--no-log", "Disable debug logging (enabled by default)")
+  .option("--langsmith", "Enable LangSmith tracing (or set LANGSMITH_TRACING=true)", false)
   .action(async (findingsPath: string | undefined, opts) => {
     if (opts.log !== false) {
       const logPath = resolve(process.cwd(), ".sast-triage", "debug.log");
       initLogger(logPath);
       log.info("cli", "Debug logging enabled", { logPath });
+    }
+
+    // Initialize LangSmith tracing if requested via flag or env vars
+    if (opts.langsmith || hasLangSmithConfig()) {
+      const ok = await initTracing();
+      if (!ok && opts.langsmith) {
+        console.error("LangSmith tracing requested but LANGSMITH_API_KEY is not set.");
+        console.error("Set: LANGSMITH_API_KEY, LANGSMITH_TRACING=true, LANGSMITH_PROJECT");
+        process.exit(1);
+      }
     }
 
     const config = resolveConfig({
@@ -43,6 +56,11 @@ program
 
     if (opts.effort) {
       (config as Record<string, unknown>).reasoningEffort = opts.effort;
+    }
+
+    const concurrency = parseInt(opts.concurrency, 10);
+    if (concurrency >= 1 && concurrency <= 10) {
+      (config as Record<string, unknown>).concurrency = concurrency;
     }
 
     const projectConfig = new ProjectConfig(process.cwd());
