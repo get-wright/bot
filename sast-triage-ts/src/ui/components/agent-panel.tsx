@@ -238,9 +238,14 @@ function buildLines(params: {
     lines.push({ kind: "followup-q", text: `> ${followUpQuestion}` });
     if (followUpAnswer) {
       lines.push({ kind: "blank" });
-      const answerLines = followUpAnswer.split("\n");
-      for (const line of answerLines) {
-        lines.push({ kind: "followup-a", text: line });
+      // Word-wrap the answer and strip markdown headings/formatting
+      const wrapped = wrapText(followUpAnswer, w - 4); // 2 indent + margin
+      for (const line of wrapped) {
+        const cleaned = line
+          .replace(/^#{1,6}\s+/, "")       // strip markdown headings
+          .replace(/\*\*(.+?)\*\*/g, "$1") // strip bold
+          .replace(/`([^`]+)`/g, "$1");     // strip inline code
+        lines.push({ kind: "followup-a", text: cleaned });
       }
     }
   }
@@ -306,7 +311,7 @@ function renderLine(line: Line, w: number, key: string): React.ReactElement {
     case "followup-q":
       return <Box key={key}><Text color="cyan" bold>{clip(`  ${line.text}`, w)}</Text></Box>;
     case "followup-a":
-      return <Box key={key}><Text>{clip(`  ${line.text}`, w)}</Text></Box>;
+      return <Box key={key}><Text>{`  ${line.text}`}</Text></Box>;
   }
 }
 
