@@ -487,8 +487,8 @@ function MainScreen({
       return;
     }
 
-    // f: follow-up
-    if (input === "f" && viewMode === "active" && !isTriaging && selected?.verdict) {
+    // f: follow-up (allowed even during batch — only blocked if THIS finding is triaging)
+    if (input === "f" && viewMode === "active" && !triagingIndices.has(selectedIndex) && selected?.verdict) {
       setShowFollowUp(true);
       return;
     }
