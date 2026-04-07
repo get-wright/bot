@@ -133,13 +133,65 @@ export class TriageOrchestrator {
       process.exit(1);
     }
 
-    for (const state of active) {
-      const onEvent = (event: AgentEvent) => {
-        console.log(JSON.stringify({ ...event, fingerprint: state.entry.fingerprint }));
+    const items = active.map((s) => ({
+      finding: s.finding,
+      fingerprint: s.entry.fingerprint,
+    }));
+
+    await this.triageBatch(
+      items,
+      config,
+      config.concurrency ?? 1,
+      (fingerprint, result) => {
+        console.log(JSON.stringify({ type: "verdict", fingerprint, verdict: result.verdict }));
+      },
+      undefined,
+      (fingerprint, event) => {
+        console.log(JSON.stringify({ ...event, fingerprint }));
+      },
+    );
+  }
+
+  async triageBatch(
+    items: { finding: Finding; fingerprint: string }[],
+    config: AppConfig,
+    concurrency: number,
+    onResult: (fingerprint: string, result: AgentLoopResult) => void,
+    abortSignal?: AbortSignal,
+    onEvent?: (fingerprint: string, event: AgentEvent) => void,
+  ): Promise<void> {
+    let nextIdx = 0;
+    let running = 0;
+
+    return new Promise<void>((resolve) => {
+      const dispatch = () => {
+        while (running < concurrency && nextIdx < items.length) {
+          if (abortSignal?.aborted) break;
+
+          const idx = nextIdx++;
+          const item = items[idx]!;
+          running++;
+
+          this.triage(item.finding, item.fingerprint, config, (event) => {
+            onEvent?.(item.fingerprint, event);
+          })
+            .then((result) => {
+              onResult(item.fingerprint, result);
+            })
+            .catch(() => {
+              // Error already emitted via onEvent
+            })
+            .finally(() => {
+              running--;
+              dispatch();
+            });
+        }
+
+        if (running === 0) resolve();
       };
 
-      await this.triage(state.finding, state.entry.fingerprint, config, onEvent);
-    }
+      dispatch();
+    });
   }
 
   async followUp(
