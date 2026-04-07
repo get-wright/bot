@@ -63,12 +63,12 @@ export class ProjectConfig {
         // Store all provider keys so detectedProviders() can show them
         for (const [name, key] of Object.entries(apiKeys)) {
           if (SUPPORTED_PROVIDERS.includes(name as ProviderName) && typeof key === "string") {
-            this.savedApiKeys[name as ProviderName] = key;
+            this.savedApiKeys[name as ProviderName] = key.trim();
           }
         }
         // Try current provider first, then any key
         const key = apiKeys[this.provider] ?? Object.values(apiKeys)[0];
-        if (key) this.apiKey = key;
+        if (key) this.apiKey = key.trim();
       }
 
       if (typeof provider.reasoning_effort === "string") {
