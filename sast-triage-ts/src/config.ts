@@ -12,7 +12,7 @@ export interface AppConfig {
   baseUrl?: string;
   reasoningEffort?: ReasoningEffort;
   allowedPaths?: string[];
-  concurrency: number;
+  concurrency?: number;
 }
 
 export function resolveConfig(opts: {
