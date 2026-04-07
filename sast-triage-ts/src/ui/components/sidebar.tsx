@@ -4,8 +4,7 @@ import { PROVIDER_DISPLAY_NAMES, type ProviderName } from "../../provider/regist
 
 export interface QueueItem {
   label: string;
-  status: "pending" | "done" | "active";
-  verdict?: string;
+  status: "active";
 }
 
 export interface UsageStats {
@@ -30,8 +29,12 @@ export function Sidebar({
   provider,
   model,
   queue,
+  queueDone,
+  queueTotal,
   sessionUsage,
   currentUsage,
+  tracingActive,
+  width,
 }: {
   total: number;
   active: number;
@@ -43,9 +46,15 @@ export function Sidebar({
   provider: string;
   model: string;
   queue?: QueueItem[];
+  queueDone?: number;
+  queueTotal?: number;
   sessionUsage?: UsageStats;
   currentUsage?: UsageStats;
+  tracingActive?: boolean;
+  width?: number;
 }) {
+  const maxLabelLen = (width ?? 20) - 6; // "  ▸ " prefix + padding
+
   return (
     <Box flexDirection="column" padding={1}>
       <Text bold>Stats</Text>
@@ -61,33 +70,18 @@ export function Sidebar({
       <Text bold>Model</Text>
       <Text dimColor>{PROVIDER_DISPLAY_NAMES[provider as ProviderName] ?? provider}</Text>
       <Text dimColor>{model}</Text>
-      {queue && queue.length > 0 && (
+      {tracingActive && <Text color="cyan">LangSmith ON</Text>}
+      {queue && queue.length > 0 && queueTotal != null && queueDone != null && (
         <>
           <Text> </Text>
-          <Text bold>
-            Queue: {queue.filter((q) => q.status === "done").length}/{queue.length}
-          </Text>
+          <Text bold>Queue {queueDone}/{queueTotal}</Text>
           {queue.map((item, i) => {
-            const icon = item.status === "done" ? "✓" : item.status === "active" ? "▸" : " ";
-            const verdictLabel = item.verdict
-              ? item.verdict === "true_positive"
-                ? "TP"
-                : item.verdict === "false_positive"
-                  ? "FP"
-                  : "NR"
-              : "";
-            const verdictColor =
-              item.verdict === "true_positive"
-                ? "red"
-                : item.verdict === "false_positive"
-                  ? "green"
-                  : item.verdict === "needs_review"
-                    ? "#FF8C00"
-                    : undefined;
+            const label = item.label.length > maxLabelLen
+              ? item.label.slice(0, maxLabelLen - 1) + "…"
+              : item.label;
             return (
-              <Text key={i} dimColor={item.status === "pending"}>
-                {"  "}{icon} {item.label.slice(0, 16)}
-                {verdictLabel ? <Text color={verdictColor}> {verdictLabel}</Text> : ""}
+              <Text key={i} color="yellow">
+                {"  "}▸ {label}
               </Text>
             );
           })}
@@ -108,14 +102,7 @@ export function Sidebar({
         </Text>
       )}
       <Text> </Text>
-      <Text dimColor>q: quit</Text>
-      <Text dimColor>Enter: triage</Text>
-      <Text dimColor>Space: select</Text>
-      <Text dimColor>a: select all</Text>
-      <Text dimColor>Tab: switch view</Text>
-      <Text dimColor>r: re-audit</Text>
-      <Text dimColor>f: follow-up</Text>
-      <Text dimColor>^P: provider</Text>
+      <Text dimColor>m: commands</Text>
     </Box>
   );
 }
