@@ -148,7 +148,7 @@ function MainScreen({
       const items = indices
         .map((idx) => {
           const state = findingStates[idx];
-          if (!state || state.verdict) return null;
+          if (!state) return null;
           return { idx, finding: state.finding, fingerprint: state.entry.fingerprint };
         })
         .filter((item): item is NonNullable<typeof item> => item != null);
@@ -158,14 +158,19 @@ function MainScreen({
       // Eagerly mark all batch items as triaging
       setTriagingIndices(new Set(items.map((item) => item.idx)));
 
-      // Clear events and mark as in_progress
+      // Clear verdict/events and mark as in_progress (supports re-audit of completed findings)
       setFindingStates((prev) =>
         prev.map((s, i) =>
           items.some((item) => item.idx === i)
-            ? { ...s, cachedAt: undefined, entry: { ...s.entry, status: "in_progress" as FindingStatus }, events: [] }
+            ? { ...s, verdict: undefined, cachedAt: undefined, entry: { ...s.entry, status: "in_progress" as FindingStatus }, events: [] }
             : s,
         ),
       );
+      setFollowUpExchanges((prev) => {
+        const next = new Map(prev);
+        for (const item of items) next.delete(item.idx);
+        return next;
+      });
 
       setQueueState({
         items: items.map((item) => item.idx),
@@ -447,7 +452,7 @@ function MainScreen({
     if (key.return && !isTriaging) {
       if (viewMode === "active") {
         const indices = selectedIndices.size > 0
-          ? [...selectedIndices].filter((i) => !findingStates[i]!.verdict).sort((a, b) => a - b)
+          ? [...selectedIndices].sort((a, b) => a - b)
           : [selectedIndex];
         startBatchQueue(indices);
       } else if (viewMode === "filtered") {
