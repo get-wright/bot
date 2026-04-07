@@ -55,6 +55,8 @@ function isRetryableError(err: unknown): boolean {
   }
 
   const msg = err instanceof Error ? err.message : String(err);
+  // Non-retryable errors by message (when statusCode not available)
+  if (msg === "Forbidden" || msg.includes("Unauthorized") || msg.includes("forbidden")) return false;
   if (msg.includes("No output generated") || msg.includes("Check the stream")) return true;
   return false;
 }
@@ -115,8 +117,11 @@ function extractErrorMessage(err: unknown): string {
   // Fallback: use provider message or original error
   if (providerMessage) return providerMessage;
 
-  // Strip useless AI SDK wrapper messages
+  // Handle known AI SDK error names
   const msg = err instanceof Error ? err.message : String(err);
+  if (msg === "Forbidden") {
+    return "Forbidden (403). The API key may lack permission for this model.";
+  }
   if (msg.includes("No output generated") || msg.includes("Check the stream")) {
     return "No response from provider. The model may be unavailable or overloaded.";
   }
@@ -159,6 +164,9 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
   const tools = createTools({ projectRoot, allowBash, permissions: { isPathAllowed, requestPermission } });
   const doomLoop = new DoomLoopDetector();
   let finalVerdict: TriageVerdict | null = null;
+  // Capture the real API error from onError callback — streamText swallows
+  // these and throws AI_NoOutputGeneratedError, hiding the actual cause.
+  let lastStreamApiError: unknown = null;
   // Capture the model's text output during investigation — used as reasoning
   // fallback if the model returns a partial verdict from generateObject.
   let accumulatedText = "";
@@ -191,6 +199,16 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
     providerOptions,
     maxRetries: 3,
     stopWhen: stepCountIs(maxSteps),
+    onError({ error }) {
+      // Capture the real API error — streamText swallows it and throws
+      // AI_NoOutputGeneratedError instead, hiding the actual cause (e.g. 403).
+      lastStreamApiError = error;
+      log.error("stream", "streamText onError callback", {
+        message: error instanceof Error ? error.message : String(error),
+        name: error instanceof Error ? error.name : undefined,
+        cause: error instanceof Error && error.cause ? String(error.cause) : undefined,
+      });
+    },
     async prepareStep({ stepNumber }) {
       log.debug("agent", `Step ${stepNumber + 1}/${maxSteps}${finalVerdict ? " (verdict already delivered)" : ""}`);
       // Skip overrides if verdict already delivered — no need to waste steps
@@ -281,10 +299,17 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
     try {
       await result.text;
       lastStreamError = undefined;
+      lastStreamApiError = null;
     } catch (err) {
-      lastStreamError = err;
-      const message = extractErrorMessage(err);
-      log.error("agent", `API error (attempt ${streamAttempt + 1}): ${message}`);
+      // Prefer the real API error captured by onError over the generic
+      // AI_NoOutputGeneratedError thrown by streamText
+      const realError = lastStreamApiError ?? err;
+      lastStreamError = realError;
+      const message = extractErrorMessage(realError);
+      log.error("agent", `API error (attempt ${streamAttempt + 1}): ${message}`, {
+        errorName: realError instanceof Error ? realError.name : undefined,
+        rawMessage: realError instanceof Error ? realError.message : String(realError),
+      });
       onEvent({ type: "error", message: `API error: ${message}` });
     }
   };
