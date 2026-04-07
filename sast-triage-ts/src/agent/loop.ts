@@ -412,20 +412,35 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
   }
 
   // If verdict came from tool call, backfill missing reasoning/evidence from
-  // the model's accumulated text. Weak models (GLM-4.7) often call the verdict
-  // tool with empty reasoning/evidence after writing the analysis as text.
+  // the model's accumulated text or tool call history. Weak models (GLM-4.7)
+  // often call the verdict tool with empty reasoning/evidence after writing
+  // the analysis as text, or skip text entirely and go straight to verdict.
   if (finalVerdict !== null) {
     const v: TriageVerdict = finalVerdict;
     const needsBackfill = !v.reasoning.trim() || v.key_evidence.length === 0;
     if (needsBackfill) {
       const synthesized = accumulatedText.trim().slice(0, 2000);
+      // If no accumulated text, build reasoning from tool call history
+      const toolSummary = !synthesized && capturedToolCalls.length > 0
+        ? capturedToolCalls.map((tc) => {
+            if (tc.tool === "read") return `Read ${tc.args.path}${tc.args.offset ? `:${tc.args.offset}-${(tc.args.offset as number) + ((tc.args.limit as number) ?? 200) - 1}` : ""}`;
+            if (tc.tool === "grep") return `Grep ${tc.args.pattern} in ${tc.args.path ?? "project"}`;
+            if (tc.tool === "glob") return `Glob ${tc.args.pattern}`;
+            return `${tc.tool}(${JSON.stringify(tc.args).slice(0, 80)})`;
+          }).join("; ")
+        : "";
       const backfilledReasoning = v.reasoning.trim()
         || synthesized
-        || "Model did not provide detailed reasoning.";
+        || (toolSummary ? `Investigated: ${toolSummary}` : "Model did not provide detailed reasoning.");
+      const backfilledEvidence = v.key_evidence.length > 0
+        ? v.key_evidence
+        : capturedToolCalls
+            .filter((tc) => tc.tool === "read" || tc.tool === "grep")
+            .map((tc) => tc.tool === "read" ? `${tc.args.path}` : `grep ${tc.args.pattern}`);
       finalVerdict = {
         verdict: v.verdict,
         reasoning: backfilledReasoning,
-        key_evidence: v.key_evidence,
+        key_evidence: backfilledEvidence,
         suggested_fix: v.suggested_fix,
       };
       log.info("agent", "Backfilled verdict from accumulated text", {
