@@ -160,13 +160,25 @@ export class TriageOrchestrator {
     abortSignal?: AbortSignal,
     onEvent?: (fingerprint: string, event: AgentEvent) => void,
   ): Promise<void> {
+    // Stagger delay between launching concurrent requests to avoid
+    // thundering herd on provider APIs (empty 200 responses, rate limits).
+    const STAGGER_MS = 500;
     let nextIdx = 0;
     let running = 0;
+    let dispatching = false;
 
     return new Promise<void>((resolve) => {
       const dispatch = () => {
-        while (running < concurrency && nextIdx < items.length) {
-          if (abortSignal?.aborted) break;
+        // Prevent re-entrant dispatch from scheduling duplicate stagger chains
+        if (dispatching) return;
+        dispatching = true;
+
+        const launchNext = () => {
+          if (running >= concurrency || nextIdx >= items.length || abortSignal?.aborted) {
+            dispatching = false;
+            if (running === 0 && (nextIdx >= items.length || abortSignal?.aborted)) resolve();
+            return;
+          }
 
           const idx = nextIdx++;
           const item = items[idx]!;
@@ -185,9 +197,16 @@ export class TriageOrchestrator {
               running--;
               dispatch();
             });
-        }
 
-        if (running === 0) resolve();
+          // Stagger the next launch to avoid hitting provider rate limits
+          if (running < concurrency && nextIdx < items.length && !abortSignal?.aborted) {
+            setTimeout(launchNext, STAGGER_MS);
+          } else {
+            dispatching = false;
+          }
+        };
+
+        launchNext();
       };
 
       dispatch();

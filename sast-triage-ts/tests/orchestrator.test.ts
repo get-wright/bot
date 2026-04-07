@@ -69,7 +69,8 @@ describe("TriageOrchestrator", () => {
       orchestrator.triage = vi.fn(async (...args: Parameters<typeof orchestrator.triage>) => {
         currentConcurrent++;
         if (currentConcurrent > maxConcurrent) maxConcurrent = currentConcurrent;
-        await new Promise((r) => setTimeout(r, 50));
+        // Must be longer than the 500ms stagger delay so concurrent calls overlap
+        await new Promise((r) => setTimeout(r, 1500));
         currentConcurrent--;
         return {
           verdict: { verdict: "false_positive" as const, reasoning: "test", key_evidence: [], suggested_fix: undefined },
