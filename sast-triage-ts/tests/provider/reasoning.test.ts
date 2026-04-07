@@ -7,9 +7,9 @@ describe("resolveProviderOptions", () => {
     expect(opts).toEqual({ openai: { reasoningEffort: "medium" } });
   });
 
-  it("returns empty options for openrouter provider (multi-provider proxy)", () => {
+  it("returns OpenAI reasoningEffort for openrouter provider", () => {
     const opts = resolveProviderOptions("openrouter", "high");
-    expect(opts).toEqual({});
+    expect(opts).toEqual({ openai: { reasoningEffort: "high" } });
   });
 
   it("returns Anthropic thinking budget for anthropic provider", () => {

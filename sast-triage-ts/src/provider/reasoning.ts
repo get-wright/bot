@@ -18,14 +18,9 @@ export function resolveProviderOptions(
 ): Record<string, Record<string, unknown>> {
   switch (provider) {
     case "openai":
+    case "openrouter":
     case "fpt":
       return { openai: { reasoningEffort: effort } };
-    case "openrouter":
-      // OpenRouter proxies many providers — reasoningEffort only works
-      // for OpenAI reasoning models (o1/o3). For other models it causes
-      // empty responses. Skip provider options; models that support
-      // reasoning will use their default behavior.
-      return {};
     case "anthropic":
       return {
         anthropic: {
