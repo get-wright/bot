@@ -3,6 +3,7 @@ import { Box, Text, useInput } from "ink";
 import TextInput from "ink-text-input";
 import type { AgentEvent } from "../../models/events.js";
 import type { TriageVerdict } from "../../models/verdict.js";
+import type { Finding } from "../../models/finding.js";
 
 // --- Text utilities ---
 
@@ -86,7 +87,8 @@ type Line =
   | { kind: "verdict-label"; text: string; color: VerdictColor }
   | { kind: "verdict-evidence"; text: string; color: VerdictColor }
   | { kind: "usage"; left: string; right: string }
-  | { kind: "followup-q"; text: string };
+  | { kind: "followup-q"; text: string }
+  | { kind: "followup-a"; text: string };
 
 function verdictStyle(v: TriageVerdict["verdict"]): { color: VerdictColor; label: string } {
   switch (v) {
@@ -101,6 +103,61 @@ function fmtTokens(n: number): string {
   return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
 }
 
+const SEVERITY_COLORS: Record<string, string> = {
+  ERROR: "red",
+  WARNING: "#FF8C00",
+  INFO: "gray",
+};
+
+/** Extract CWE code from "CWE-269: Improper Privilege Management" → "CWE-269" */
+function cweCode(cwe: string): string {
+  const colon = cwe.indexOf(":");
+  return colon > 0 ? cwe.slice(0, colon).trim() : cwe.trim();
+}
+
+/** Calculate how many terminal lines the FindingHeader will occupy. */
+export function findingHeaderHeight(finding: Finding, width: number): number {
+  // Inner width: subtract border (2) + paddingX (2)
+  const innerW = Math.max(1, width - 4);
+  const message = finding.extra.message;
+  const messageLines = message ? wrapText(message, innerW).length : 0;
+  // border top(1) + severity(1) + rule(1) + fileLine(1) + messageLines + border bottom(1) + marginBottom(1)
+  return 5 + messageLines;
+}
+
+function FindingHeader({ finding, width }: { finding: Finding; width: number }) {
+  // Inner width: subtract border (2) + paddingX (2)
+  const innerW = Math.max(1, width - 4);
+  const severity = finding.extra.severity;
+  const sevColor = SEVERITY_COLORS[severity] ?? "white";
+  const ruleShort = finding.check_id.split(".").pop() ?? finding.check_id;
+  const fileLine = `${finding.path}:${finding.start.line}`;
+  const cwes = finding.extra.metadata.cwe;
+  const vulnClass = finding.extra.metadata.vulnerability_class;
+  const message = finding.extra.message;
+
+  const metaParts: string[] = [];
+  if (cwes.length > 0) metaParts.push(cwes.map(cweCode).join(", "));
+  if (vulnClass.length > 0) metaParts.push(vulnClass.join(", "));
+  const metaStr = metaParts.join(" · ");
+
+  const wrappedMessage = message ? wrapText(message, innerW) : [];
+
+  return (
+    <Box flexDirection="column" borderStyle="single" paddingX={1} marginBottom={1} overflow="hidden">
+      <Box overflow="hidden">
+        <Text color={sevColor} bold>{severity}</Text>
+        {metaStr ? <Text dimColor> · {clip(metaStr, Math.max(1, innerW - severity.length - 4))}</Text> : null}
+      </Box>
+      <Box overflow="hidden"><Text color="yellow" bold>{clip(ruleShort, innerW)}</Text></Box>
+      <Box overflow="hidden"><Text color="cyan">{clip(fileLine, innerW)}</Text></Box>
+      {wrappedMessage.map((line, i) => (
+        <Box key={i} overflow="hidden"><Text dimColor>{line}</Text></Box>
+      ))}
+    </Box>
+  );
+}
+
 function buildLines(params: {
   toolCalls: { name: string; detail: string }[];
   isActive: boolean;
@@ -109,9 +166,10 @@ function buildLines(params: {
   cachedAt?: string;
   error?: string;
   followUpQuestion?: string;
+  followUpAnswer?: string;
   w: number;
 }): Line[] {
-  const { toolCalls, isActive, verdict, usage, cachedAt, error, followUpQuestion, w } = params;
+  const { toolCalls, isActive, verdict, usage, cachedAt, error, followUpQuestion, followUpAnswer, w } = params;
   const lines: Line[] = [];
 
   for (const tc of toolCalls) {
@@ -178,6 +236,13 @@ function buildLines(params: {
   if (followUpQuestion) {
     lines.push({ kind: "blank" });
     lines.push({ kind: "followup-q", text: `> ${followUpQuestion}` });
+    if (followUpAnswer) {
+      lines.push({ kind: "blank" });
+      const answerLines = followUpAnswer.split("\n");
+      for (const line of answerLines) {
+        lines.push({ kind: "followup-a", text: line });
+      }
+    }
   }
 
   return lines;
@@ -240,19 +305,22 @@ function renderLine(line: Line, w: number, key: string): React.ReactElement {
       );
     case "followup-q":
       return <Box key={key}><Text color="cyan" bold>{clip(`  ${line.text}`, w)}</Text></Box>;
+    case "followup-a":
+      return <Box key={key}><Text>{clip(`  ${line.text}`, w)}</Text></Box>;
   }
 }
 
 // --- Main component ---
 
 export function AgentPanel({
-  events, isActive, width, height,
+  events, isActive, width, height, finding,
   showFollowUpInput, onFollowUp, onPermissionResolve, cachedAt,
 }: {
   events: AgentEvent[];
   isActive: boolean;
   width: number;
   height: number;
+  finding?: Finding;
   showFollowUpInput?: boolean;
   onFollowUp?: (question: string) => void;
   onPermissionResolve?: (decision: "once" | "always" | "deny") => void;
@@ -271,6 +339,8 @@ export function AgentPanel({
   let usage: { inputTokens: number; outputTokens: number } | undefined;
   let error: string | undefined;
   let followUpQuestion: string | undefined;
+  let followUpAnswer = "";
+  let inFollowUp = false;
   let permissionEvent: Extract<AgentEvent, { type: "permission_request" }> | undefined;
 
   for (const ev of events) {
@@ -281,18 +351,23 @@ export function AgentPanel({
       case "verdict": verdict = ev.verdict; break;
       case "usage": usage = { inputTokens: ev.inputTokens, outputTokens: ev.outputTokens }; break;
       case "error": error = ev.message; break;
-      case "followup_start": followUpQuestion = ev.question; break;
+      case "followup_start": followUpQuestion = ev.question; inFollowUp = true; break;
+      case "thinking":
+        if (inFollowUp) followUpAnswer += ev.delta;
+        break;
       case "permission_request": permissionEvent = ev; break;
     }
   }
 
-  const lines = buildLines({ toolCalls, isActive, verdict, usage, cachedAt, error, followUpQuestion, w });
+  const lines = buildLines({ toolCalls, isActive, verdict, usage, cachedAt, error, followUpQuestion, followUpAnswer, w });
+
+  const headerHeight = finding ? findingHeaderHeight(finding, w) : 0;
 
   // Footer reservation (interactive elements, always visible below viewport)
   const footerRows = permissionEvent ? 4 : (showFollowUpInput ? 2 : 0);
 
-  // Content budget after padding={1} top+bottom
-  const contentHeight = Math.max(1, height - 2);
+  // Content budget after padding={1} top+bottom, minus finding header
+  const contentHeight = Math.max(1, height - 2 - headerHeight);
   const availableForLines = Math.max(1, contentHeight - footerRows);
   const canScroll = lines.length > availableForLines;
   const viewHeight = canScroll ? Math.max(1, availableForLines - 1) : availableForLines;
@@ -338,7 +413,12 @@ export function AgentPanel({
   });
 
   if (events.length === 0 && !isActive) {
-    return <Box padding={1}><Text dimColor>Press Enter to start investigating.</Text></Box>;
+    return (
+      <Box flexDirection="column" padding={1}>
+        {finding && <FindingHeader finding={finding} width={w} />}
+        <Text dimColor>Press Enter to start investigating.</Text>
+      </Box>
+    );
   }
 
   const visible = lines.slice(clampedOffset, clampedOffset + viewHeight);
@@ -347,6 +427,7 @@ export function AgentPanel({
 
   return (
     <Box flexDirection="column" padding={1}>
+      {finding && <FindingHeader finding={finding} width={w} />}
       {visible.map((line, i) => renderLine(line, w, `v${clampedOffset + i}`))}
       {canScroll && (
         <Box width={w}>
