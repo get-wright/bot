@@ -36,6 +36,29 @@ export interface AgentLoopResult {
   outputTokens: number;
 }
 
+/** Check if an error is transient and worth retrying (rate limit, 5xx, empty response). */
+function isRetryableError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+
+  let current: unknown = err;
+  const seen = new Set<unknown>();
+
+  while (current instanceof Error && !seen.has(current)) {
+    seen.add(current);
+    const anyErr = current as unknown as Record<string, unknown>;
+    if (typeof anyErr.statusCode === "number") {
+      const code = anyErr.statusCode;
+      if (code === 429 || code >= 500) return true;
+      if (code === 401 || code === 402 || code === 403) return false;
+    }
+    current = (current as Error).cause;
+  }
+
+  const msg = err instanceof Error ? err.message : String(err);
+  if (msg.includes("No output generated") || msg.includes("Check the stream")) return true;
+  return false;
+}
+
 /** Extract the most useful error message, digging into cause chains.
  *  Detects rate limits (429), auth errors (401/403), and provider-specific errors. */
 function extractErrorMessage(err: unknown): string {
@@ -144,6 +167,8 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
   const capturedToolCalls: { tool: string; args: Record<string, unknown> }[] = [];
   let capturedInputTokens = 0;
   let capturedOutputTokens = 0;
+  // Track tool call start times for duration measurement
+  const toolStartTimes = new Map<string, number>();
 
   const systemPromptParts = [SYSTEM_PROMPT];
   if (memoryHints.length > 0) {
@@ -164,6 +189,7 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
     messages: [{ role: "user", content: userMessage }],
     tools,
     providerOptions,
+    maxRetries: 3,
     stopWhen: stepCountIs(maxSteps),
     async prepareStep({ stepNumber }) {
       log.debug("agent", `Step ${stepNumber + 1}/${maxSteps}${finalVerdict ? " (verdict already delivered)" : ""}`);
@@ -198,6 +224,7 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
           const toolName = chunk.toolName;
           const args = chunk.input as Record<string, unknown>;
           log.info("tool", `${toolName}`, args);
+          toolStartTimes.set(chunk.toolCallId, performance.now());
           onEvent({ type: "tool_start", tool: toolName, args });
           doomLoop.record(toolName, args);
 
@@ -218,12 +245,16 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
         case "tool-result": {
           const output = String(chunk.output);
           const lines = output.split("\n");
-          log.debug("tool", `${chunk.toolName} result: ${lines.length} lines, ${output.length} bytes`);
+          const startTime = toolStartTimes.get(chunk.toolCallId);
+          const durationMs = startTime ? Math.round(performance.now() - startTime) : 0;
+          if (startTime) toolStartTimes.delete(chunk.toolCallId);
+          const success = !output.startsWith("Command failed:") && !output.startsWith("Error:");
+          log.info("tool", `${chunk.toolName} ${success ? "OK" : "FAIL"} ${durationMs}ms — ${lines.length} lines, ${output.length} bytes`);
           const summary =
             lines.length > 3
               ? lines.slice(0, 3).join("\n") + `\n... (${lines.length} lines)`
               : output;
-          onEvent({ type: "tool_result", tool: chunk.toolName, summary, full: output });
+          onEvent({ type: "tool_result", tool: chunk.toolName, summary, full: output, durationMs, success });
           break;
         }
       }
@@ -241,13 +272,118 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
     },
   });
 
-  // Consume the stream to completion
-  try {
-    await result.text;
-  } catch (err) {
-    const message = extractErrorMessage(err);
-    log.error("agent", `API error: ${message}`);
-    onEvent({ type: "error", message: `API error: ${message}` });
+  // Consume the stream to completion, with retry on transient errors
+  const MAX_STREAM_RETRIES = 2;
+  let streamAttempt = 0;
+  let lastStreamError: unknown;
+
+  const consumeStream = async () => {
+    try {
+      await result.text;
+      lastStreamError = undefined;
+    } catch (err) {
+      lastStreamError = err;
+      const message = extractErrorMessage(err);
+      log.error("agent", `API error (attempt ${streamAttempt + 1}): ${message}`);
+      onEvent({ type: "error", message: `API error: ${message}` });
+    }
+  };
+
+  await consumeStream();
+
+  // Retry the entire streamText call if we got a transient error and no verdict
+  while (lastStreamError && !finalVerdict && isRetryableError(lastStreamError) && streamAttempt < MAX_STREAM_RETRIES) {
+    streamAttempt++;
+    const delayMs = 1000 * Math.pow(2, streamAttempt - 1); // 1s, 2s
+    log.info("agent", `Retrying stream (attempt ${streamAttempt + 1}) after ${delayMs}ms delay`);
+    onEvent({ type: "error", message: `Retrying in ${delayMs / 1000}s...` });
+    await new Promise((r) => setTimeout(r, delayMs));
+
+    // Reset state for retry
+    accumulatedText = "";
+    finalVerdict = null;
+
+    const retryResult = streamText({
+      model: languageModel,
+      system: systemPrompt,
+      messages: [{ role: "user", content: userMessage }],
+      tools,
+      providerOptions,
+      maxRetries: 3,
+      stopWhen: stepCountIs(maxSteps),
+      async prepareStep({ stepNumber }) {
+        if (finalVerdict) return;
+        if (stepNumber === maxSteps - 2) {
+          return {
+            system: systemPrompt +
+              "\n\nIMPORTANT: You have 1 step remaining after this one. Wrap up your investigation and call the verdict tool with your best assessment based on the evidence gathered so far.",
+          };
+        }
+        if (stepNumber === maxSteps - 1) {
+          return {
+            toolChoice: { type: "tool" as const, toolName: "verdict" },
+            activeTools: ["verdict"] as any,
+            system: systemPrompt +
+              "\n\nThis is your FINAL step. You MUST call the verdict tool now. Deliver your verdict based on all evidence gathered.",
+          };
+        }
+      },
+      onChunk({ chunk }) {
+        switch (chunk.type) {
+          case "text-delta":
+            accumulatedText += chunk.text;
+            onEvent({ type: "thinking", delta: chunk.text });
+            break;
+          case "tool-call": {
+            const toolName = chunk.toolName;
+            const args = chunk.input as Record<string, unknown>;
+            toolStartTimes.set(chunk.toolCallId, performance.now());
+            onEvent({ type: "tool_start", tool: toolName, args });
+            doomLoop.record(toolName, args);
+            if (toolName === "verdict") {
+              try { finalVerdict = TriageVerdictSchema.parse(args); } catch { /* invalid */ }
+            } else {
+              capturedToolCalls.push({ tool: toolName, args });
+            }
+            break;
+          }
+          case "tool-result": {
+            const output = String(chunk.output);
+            const lines = output.split("\n");
+            const startTime = toolStartTimes.get(chunk.toolCallId);
+            const durationMs = startTime ? Math.round(performance.now() - startTime) : 0;
+            if (startTime) toolStartTimes.delete(chunk.toolCallId);
+            const success = !output.startsWith("Command failed:") && !output.startsWith("Error:");
+            const summary = lines.length > 3 ? lines.slice(0, 3).join("\n") + `\n... (${lines.length} lines)` : output;
+            onEvent({ type: "tool_result", tool: chunk.toolName, summary, full: output, durationMs, success });
+            break;
+          }
+        }
+      },
+      onStepFinish() {
+        const status = doomLoop.check();
+        if (status === "warn") {
+          doomLoop.acknowledge();
+          onEvent({ type: "error", message: "Doom loop detected: same tool called with identical arguments 3 times. Try a different approach." });
+        }
+      },
+    });
+
+    try {
+      await retryResult.text;
+      lastStreamError = undefined;
+      // Capture token usage from retry
+      try {
+        const retryUsage = await retryResult.totalUsage;
+        capturedInputTokens += retryUsage.inputTokens ?? 0;
+        capturedOutputTokens += retryUsage.outputTokens ?? 0;
+      } catch { /* usage not available */ }
+    } catch (err) {
+      lastStreamError = err;
+      const message = extractErrorMessage(err);
+      log.error("agent", `API error (attempt ${streamAttempt + 1}): ${message}`);
+      onEvent({ type: "error", message: `API error: ${message}` });
+    }
   }
 
   // If verdict came from tool call, backfill missing reasoning/evidence from
