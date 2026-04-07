@@ -44,6 +44,7 @@ program
       }
     }
 
+    const concurrency = parseInt(opts.concurrency, 10);
     const config = resolveConfig({
       findingsPath,
       provider: opts.provider,
@@ -52,15 +53,11 @@ program
       allowBash: opts.allowBash,
       maxSteps: parseInt(opts.maxSteps, 10),
       memoryDb: opts.memoryDb,
+      concurrency: concurrency >= 1 && concurrency <= 10 ? concurrency : undefined,
     });
 
     if (opts.effort) {
       (config as Record<string, unknown>).reasoningEffort = opts.effort;
-    }
-
-    const concurrency = parseInt(opts.concurrency, 10);
-    if (concurrency >= 1 && concurrency <= 10) {
-      (config as Record<string, unknown>).concurrency = concurrency;
     }
 
     const projectConfig = new ProjectConfig(process.cwd());
