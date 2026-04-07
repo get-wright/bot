@@ -403,7 +403,7 @@ function MainScreen({
       return;
     }
 
-    if (input === "m" && !isTriaging) {
+    if (input === "m") {
       setShowCommandPanel(true);
       return;
     }
