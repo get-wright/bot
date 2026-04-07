@@ -21,8 +21,8 @@ const StringOrArray = z.union([
 
 export const TriageVerdictSchema = z.object({
   verdict: VerdictValue.describe("Final verdict: true_positive, false_positive, or needs_review"),
-  reasoning: z.string().default("").describe("Detailed explanation of the verdict referencing specific code lines and data flow"),
-  key_evidence: StringOrArray.default([]).describe("Specific evidence items (line numbers, code patterns, framework protections) supporting the verdict"),
-  suggested_fix: z.string().optional().describe("Concrete fix suggestion if applicable"),
+  reasoning: z.string().default("").describe("Plain text analysis explaining WHY this verdict was reached. Focus on the data flow and security logic. Do NOT include evidence lists or fix suggestions here — use the dedicated fields below."),
+  key_evidence: StringOrArray.default([]).describe("Short evidence items as an array of strings. Each item is one fact: a line number, code pattern, or protection found. Do NOT duplicate the reasoning text."),
+  suggested_fix: z.string().optional().describe("Concrete fix suggestion. Only if verdict is true_positive."),
 });
 export type TriageVerdict = z.infer<typeof TriageVerdictSchema>;

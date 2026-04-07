@@ -49,7 +49,7 @@ export function createTools(config: ToolConfig): ToolSet {
     }),
     verdict: tool({
       description:
-        "Deliver your final triage verdict. Call this when you have enough evidence. This ends the investigation.",
+        "Deliver your final triage verdict. Call this when you have enough evidence. This ends the investigation. Do NOT repeat or summarize your analysis after calling this tool.",
       inputSchema: TriageVerdictSchema,
       execute: async (args) => JSON.stringify(args),
     }),

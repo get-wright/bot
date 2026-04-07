@@ -194,9 +194,29 @@ function buildLines(params: {
     lines.push({ kind: "verdict-head", label, color });
 
     if (verdict.reasoning) {
-      lines.push({ kind: "verdict-blank", color });
-      for (const wrapped of wrapText(verdict.reasoning, cw)) {
-        lines.push({ kind: "verdict-text", text: wrapped, color });
+      // Strip duplicate evidence/fix sections from reasoning when we render
+      // them separately from the structured fields. Models (GLM-4.7) often
+      // embed these in reasoning AND provide them as key_evidence/suggested_fix.
+      let reasoning = verdict.reasoning;
+      if (verdict.key_evidence.length > 0 || verdict.suggested_fix) {
+        reasoning = reasoning
+          .replace(/\n+\*{0,2}Evidence:?\*{0,2}\n[\s\S]*$/i, "")
+          .replace(/\n+#{1,3}\s*Evidence[\s\S]*$/i, "")
+          .replace(/\n+\*{0,2}(?:Suggested\s*)?Fix:?\*{0,2}\n[\s\S]*$/i, "")
+          .replace(/\n+#{1,3}\s*(?:Suggested\s*)?Fix[\s\S]*$/i, "")
+          .replace(/\n+\*{0,2}Key Evidence:?\*{0,2}\n[\s\S]*$/i, "")
+          .trim();
+      }
+      if (reasoning) {
+        // Strip markdown formatting for clean terminal display
+        reasoning = reasoning
+          .replace(/^#{1,6}\s+/gm, "")        // headings
+          .replace(/\*\*(.+?)\*\*/g, "$1")    // bold
+          .replace(/`([^`]+)`/g, "$1");        // inline code
+        lines.push({ kind: "verdict-blank", color });
+        for (const wrapped of wrapText(reasoning, cw)) {
+          lines.push({ kind: "verdict-text", text: wrapped, color });
+        }
       }
     }
 
