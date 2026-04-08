@@ -745,6 +745,11 @@ function App({
     setScreen("setup");
   }, []);
 
+  const handleSetupCancel = useCallback(() => {
+    setSwitchingProvider(false);
+    setScreen("main");
+  }, []);
+
   const handleSetupComplete = useCallback(
     (result: SetupResult) => {
       const fullConfig: AppConfig = {
@@ -809,7 +814,7 @@ function App({
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (screen === "setup") {
-    return <SetupScreen cwd={process.cwd()} projectConfig={projectConfig} onComplete={handleSetupComplete} startStep={switchingProvider ? "provider" : undefined} />;
+    return <SetupScreen cwd={process.cwd()} projectConfig={projectConfig} onComplete={handleSetupComplete} onCancel={switchingProvider ? handleSetupCancel : undefined} startStep={switchingProvider ? "provider" : undefined} />;
   }
 
   if (!config || (findings.length === 0 && filteredFindings.length === 0)) {

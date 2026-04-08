@@ -1,5 +1,8 @@
-import { execFileSync } from "node:child_process";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { resolve, relative } from "node:path";
+
+const execFileAsync = promisify(execFile);
 
 const MAX_MATCHES = 50;
 
@@ -30,11 +33,12 @@ export function createGrepTool(projectRoot: string): GrepTool {
 
       let output: string;
       try {
-        output = execFileSync("rg", args, { encoding: "utf8", maxBuffer: 10 * 1024 * 1024 });
+        const result = await execFileAsync("rg", args, { encoding: "utf8", maxBuffer: 10 * 1024 * 1024 });
+        output = result.stdout;
       } catch (err: unknown) {
-        const e = err as { status?: number; stdout?: string };
+        const e = err as { code?: number; stdout?: string };
         // rg exits 1 when no matches found
-        if (e.status === 1) return "No matches found.";
+        if (e.code === 1) return "No matches found.";
         throw err;
       }
 

@@ -1,5 +1,8 @@
-import { spawnSync } from "node:child_process";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { resolve } from "node:path";
+
+const execFileAsync = promisify(execFile);
 
 const MAX_BYTES = 50 * 1024;
 const DEFAULT_TIMEOUT_SEC = 30;
@@ -35,22 +38,21 @@ export function createBashTool(projectRoot: string): BashTool {
         }
       }
 
-      const result = spawnSync("bash", ["-c", command], {
-        cwd: root,
-        timeout: timeout * 1000,
-        maxBuffer: MAX_BYTES * 2,
-        encoding: "utf8",
-      });
-
-      const stdout = (result.stdout ?? "").slice(0, MAX_BYTES);
-      const stderr = (result.stderr ?? "").slice(0, MAX_BYTES);
-
-      if (result.status !== 0 || result.error) {
+      try {
+        const result = await execFileAsync("bash", ["-c", command], {
+          cwd: root,
+          timeout: timeout * 1000,
+          maxBuffer: MAX_BYTES * 2,
+          encoding: "utf8",
+        });
+        return (result.stdout ?? "").slice(0, MAX_BYTES);
+      } catch (err: unknown) {
+        const e = err as { stdout?: string; stderr?: string };
+        const stdout = (e.stdout ?? "").slice(0, MAX_BYTES);
+        const stderr = (e.stderr ?? "").slice(0, MAX_BYTES);
         const combined = [stdout, stderr].filter(Boolean).join("\n");
         return `Command failed: ${combined}`;
       }
-
-      return stdout;
     },
   };
 }

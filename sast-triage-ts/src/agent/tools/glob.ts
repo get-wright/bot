@@ -1,5 +1,8 @@
-import { execFileSync } from "node:child_process";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { resolve } from "node:path";
+
+const execFileAsync = promisify(execFile);
 
 const MAX_FILES = 50;
 const IGNORED_DIRS = ["node_modules", ".git", "dist", "__pycache__", "venv", "build"];
@@ -31,10 +34,11 @@ export function createGlobTool(projectRoot: string): GlobTool {
 
       let output: string;
       try {
-        output = execFileSync("rg", args, { encoding: "utf8", maxBuffer: 10 * 1024 * 1024 });
+        const result = await execFileAsync("rg", args, { encoding: "utf8", maxBuffer: 10 * 1024 * 1024 });
+        output = result.stdout;
       } catch (err: unknown) {
-        const e = err as { status?: number };
-        if (e.status === 1) return "No files found.";
+        const e = err as { code?: number };
+        if (e.code === 1) return "No files found.";
         throw err;
       }
 

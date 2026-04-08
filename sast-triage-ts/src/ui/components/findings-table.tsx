@@ -41,8 +41,8 @@ export function FindingsTable({
   width?: number;
 }) {
   const sel = selectedIndices ?? new Set<number>();
-  // prefix: ">" or " " + mark + " " + icon + " " = 6 chars
-  const contentWidth = (width ?? 40) - 6;
+  // prefix: ">" or " " + " " + mark + " " + icon + " " = 7 chars
+  const contentWidth = (width ?? 40) - 7;
 
   return (
     <Box flexDirection="column" width="100%" padding={1}>
@@ -57,17 +57,12 @@ export function FindingsTable({
         const color = STATUS_COLORS[f.status];
         const icon = STATUS_ICONS[f.status];
         const mark = sel.has(i) ? "●" : " ";
-        // Show file:line as primary, rule as secondary
-        const filePart = f.fileLine;
-        const ruleShort = f.ruleId.split(".").pop() ?? f.ruleId;
-        const remaining = contentWidth - filePart.length - 1;
-        const rule = remaining > 5 ? ` ${ruleShort.slice(0, remaining)}` : "";
-        const line = `${filePart}${rule}`;
+        const line = f.fileLine;
         const clipped = line.length > contentWidth ? line.slice(0, contentWidth - 1) + "…" : line;
         return (
           <Box key={`${f.fingerprint}-${i}`}>
             <Text color={color}>
-              {highlighted ? ">" : " "}{mark} {icon} {clipped}
+              {highlighted ? ">" : " "} {mark} {icon} {clipped}
             </Text>
           </Box>
         );

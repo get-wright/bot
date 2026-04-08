@@ -34,11 +34,13 @@ export function SetupScreen({
   cwd,
   projectConfig,
   onComplete,
+  onCancel,
   startStep: startStepProp,
 }: {
   cwd: string;
   projectConfig: ProjectConfig;
   onComplete: (result: SetupResult) => void;
+  onCancel?: () => void;
   startStep?: SetupStep;
 }) {
   const saved = projectConfig.hasConfig();
@@ -90,9 +92,13 @@ export function SetupScreen({
       return;
     }
 
-    // Escape goes back on all steps after trust
+    // Escape: if we entered mid-flow (provider switch), always cancel back to main
     if (key.escape) {
-      goBack();
+      if (onCancel) {
+        onCancel();
+      } else {
+        goBack();
+      }
       return;
     }
 
