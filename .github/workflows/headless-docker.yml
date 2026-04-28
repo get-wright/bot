@@ -17,9 +17,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: oven-sh/setup-bun@v1
+      - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: '1.1'
+          bun-version: latest
 
       - name: Install + typecheck + test
         working-directory: sast-triage-ts
