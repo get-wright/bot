@@ -4,7 +4,6 @@ import type { Finding } from "./models/finding.js";
 import type { TriageVerdict } from "./models/verdict.js";
 import type { AgentEvent } from "./models/events.js";
 import type { MemoryStore, CachedRecord } from "./memory/store.js";
-import type { FindingEntry, FindingStatus } from "./ui/components/findings-table.js";
 import type { AppConfig } from "./config.js";
 import type { AgentLoopResult } from "./agent/loop.js";
 import type { FollowUpExchange } from "./agent/follow-up.js";
@@ -12,6 +11,16 @@ import { parseSemgrepOutput, fingerprintFinding } from "./parser/semgrep.js";
 import { prefilterFinding } from "./parser/prefilter.js";
 import { runAgentLoop } from "./agent/loop.js";
 import { runFollowUp } from "./agent/follow-up.js";
+
+export type FindingStatus = "pending" | "in_progress" | "true_positive" | "false_positive" | "needs_review";
+
+export interface FindingEntry {
+  fingerprint: string;
+  ruleId: string;
+  fileLine: string;
+  severity: string;
+  status: FindingStatus;
+}
 
 export interface FindingState {
   entry: FindingEntry;
@@ -96,7 +105,6 @@ export class TriageOrchestrator {
       apiKey: config.apiKey,
       baseUrl: config.baseUrl,
       reasoningEffort: config.reasoningEffort,
-      allowedPaths: config.allowedPaths,
     });
 
     this.memory.store({

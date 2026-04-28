@@ -81,10 +81,13 @@ program
       return;
     }
 
-    // TUI mode
-    const { runTui } = await import("./ui/app.js");
-    await runTui(orchestrator, config, projectConfig);
+    // TODO(Task 14): Remove this entirely. Currently commented out so tsc passes
+    // after src/ui deletion in Task 7.
+    // const { runTui } = await import("./ui/app.js");
+    // await runTui(orchestrator, config, projectConfig);
+    console.error("TUI mode is no longer supported. Use --headless.");
     memory.close();
+    process.exit(1);
   });
 
 program.parse();

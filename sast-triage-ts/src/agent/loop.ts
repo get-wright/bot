@@ -4,14 +4,12 @@ import { VerdictValue } from "../models/verdict.js";
 import type { Finding } from "../models/finding.js";
 import type { TriageVerdict } from "../models/verdict.js";
 import type { AgentEvent } from "../models/events.js";
-import type { PermissionDecision } from "../models/events.js";
 import { TriageVerdictSchema } from "../models/verdict.js";
 import { SYSTEM_PROMPT, formatFindingMessage } from "./system-prompt.js";
 import { DoomLoopDetector } from "./doom-loop.js";
 import { createTools } from "./tools/index.js";
 import { resolveProvider } from "../provider/registry.js";
 import { resolveProviderOptions, type ReasoningEffort } from "../provider/reasoning.js";
-import { dirname } from "node:path";
 import { log } from "../logger.js";
 
 export interface AgentLoopConfig {
@@ -26,7 +24,6 @@ export interface AgentLoopConfig {
   apiKey?: string;
   baseUrl?: string;
   reasoningEffort?: ReasoningEffort;
-  allowedPaths?: string[];
 }
 
 export interface AgentLoopResult {
@@ -136,32 +133,7 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
 
   const languageModel = resolveProvider(provider, modelId, config.apiKey, config.baseUrl);
 
-  const sessionApproved = new Set<string>(config.allowedPaths ?? []);
-
-  const isPathAllowed = (absPath: string): boolean => {
-    return [...sessionApproved].some(
-      (dir) => absPath === dir || absPath.startsWith(dir.endsWith("/") ? dir : dir + "/"),
-    );
-  };
-
-  const requestPermission = (absPath: string): Promise<PermissionDecision> => {
-    return new Promise<PermissionDecision>((resolvePromise) => {
-      const dir = dirname(absPath);
-      onEvent({
-        type: "permission_request",
-        path: absPath,
-        directory: dir,
-        resolve: (decision) => {
-          if (decision === "always") {
-            sessionApproved.add(dir);
-          }
-          resolvePromise(decision);
-        },
-      });
-    });
-  };
-
-  const tools = createTools({ projectRoot, allowBash, permissions: { isPathAllowed, requestPermission } });
+  const tools = createTools({ projectRoot, allowBash });
   const doomLoop = new DoomLoopDetector();
   let finalVerdict: TriageVerdict | null = null;
   // Capture the real API error from onError callback — streamText swallows
