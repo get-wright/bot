@@ -41,6 +41,15 @@ export interface LoadResult {
   total: number;
 }
 
+type RunnerErrorResult = {
+  verdict: { verdict: "error"; reasoning: string; key_evidence: string[] };
+  toolCalls: [];
+  inputTokens: 0;
+  outputTokens: 0;
+};
+
+export type TriageResult = AgentLoopResult | RunnerErrorResult;
+
 export class TriageOrchestrator {
   private memory: MemoryStore;
 
@@ -164,7 +173,7 @@ export class TriageOrchestrator {
     items: { finding: Finding; fingerprint: string }[],
     config: AppConfig,
     concurrency: number,
-    onResult: (fingerprint: string, result: AgentLoopResult) => void,
+    onResult: (fingerprint: string, result: TriageResult) => void,
     abortSignal?: AbortSignal,
     onEvent?: (fingerprint: string, event: AgentEvent) => void,
   ): Promise<void> {
@@ -198,8 +207,14 @@ export class TriageOrchestrator {
             .then((result) => {
               onResult(item.fingerprint, result);
             })
-            .catch(() => {
-              // Error already emitted via onEvent
+            .catch((err: unknown) => {
+              const message = err instanceof Error ? err.message : String(err);
+              onResult(item.fingerprint, {
+                verdict: { verdict: "error", reasoning: message, key_evidence: [] },
+                toolCalls: [],
+                inputTokens: 0,
+                outputTokens: 0,
+              });
             })
             .finally(() => {
               running--;

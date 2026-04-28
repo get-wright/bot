@@ -2,6 +2,24 @@ import { describe, it, expect, vi } from "vitest";
 import { resolve } from "node:path";
 import { TriageOrchestrator } from "../src/orchestrator.js";
 import { MemoryStore } from "../src/memory/store.js";
+import type { Finding } from "../src/models/finding.js";
+import type { AppConfig } from "../src/config.js";
+
+function makeMinimalFinding(): Finding {
+  return {
+    check_id: "test-rule",
+    path: "src/example.ts",
+    start: { line: 10, col: 5, offset: 0 },
+    end: { line: 10, col: 25, offset: 0 },
+    extra: {
+      message: "test finding",
+      severity: "WARNING",
+      metadata: { cwe: [], confidence: "MEDIUM", category: "security", technology: [], owasp: [], vulnerability_class: [] },
+      lines: "",
+      metavars: {},
+    },
+  } as Finding;
+}
 
 describe("TriageOrchestrator", () => {
   function createOrchestrator() {
@@ -157,5 +175,48 @@ describe("TriageOrchestrator", () => {
       await orchestrator.triageBatch(items, config, 2, () => {}, abortController.signal);
       expect(callCount).toBeLessThan(6);
     });
+  });
+});
+
+describe("TriageOrchestrator.triageBatch — error rows", () => {
+  it("emits error result via onResult when triage throws", async () => {
+    const memory = {
+      lookupCached: () => null,
+      store: vi.fn(),
+      close: () => {},
+      getHints: () => [],
+    } as never;
+    const orch = new TriageOrchestrator(memory);
+
+    vi.spyOn(orch, "triage" as never).mockRejectedValue(new Error("provider 500"));
+
+    const finding = makeMinimalFinding();
+    const items = [{ finding, fingerprint: "fp1" }];
+
+    const config: AppConfig = {
+      findingsPath: "findings.json",
+      provider: "openai",
+      model: "gpt-4o",
+      headless: true,
+      allowBash: false,
+      maxSteps: 15,
+      memoryDb: ":memory:",
+    };
+
+    const results: Array<{ fp: string; result: unknown }> = [];
+    await orch.triageBatch(
+      items,
+      config,
+      1,
+      (fp, result) => { results.push({ fp, result }); },
+      undefined,
+      () => {},
+    );
+
+    expect(results).toHaveLength(1);
+    expect(results[0]!.fp).toBe("fp1");
+    const r = results[0]!.result as { verdict: { verdict: string; reasoning: string } };
+    expect(r.verdict.verdict).toBe("error");
+    expect(r.verdict.reasoning).toMatch(/provider 500/);
   });
 });
