@@ -233,7 +233,6 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
     onChunk({ chunk }) {
       switch (chunk.type) {
         case "text-delta": {
-          log.debug("stream", "text-delta", chunk.text.slice(0, 100));
           accumulatedText += chunk.text;
           onEvent({ type: "thinking", delta: chunk.text });
           break;

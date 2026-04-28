@@ -24,7 +24,7 @@ export function createTools(config: ToolConfig): ToolSet {
       inputSchema: z.object({
         path: z.string().describe("File path relative to project root"),
         offset: z.number().optional().describe("Start line (1-indexed, default 1)"),
-        limit: z.number().optional().describe("Max lines to read (default 200)"),
+        limit: z.number().optional().describe("Max lines to read (default 2000)"),
       }),
       execute: async (args) => readImpl.execute(args),
     }),

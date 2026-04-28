@@ -73,7 +73,7 @@ Built with Ink 6 + React 19 + `fullscreen-ink`. Three-panel layout: findings tab
 - `src/parser/semgrep.ts` — parse, fingerprint, classify
 - `src/parser/prefilter.ts` — test/generated/INFO filters only (no memory dependency; cached verdicts are completed work, not noise)
 - `src/ui/app.tsx` — Ink app, three views (active/filtered/dismissed), batch queue, provider switching, follow-up. Synthesizes tool_start + verdict + usage events from cached records on startup so AgentPanel renders the full history.
-- `src/ui/components/` — SetupScreen, FindingsTable, AgentPanel (event-partitioned: log + verdict card), Sidebar, FindingDetail, VerdictBanner
+- `src/ui/components/` — SetupScreen, FindingsTable, AgentPanel (event-partitioned: log + verdict card), Sidebar, FindingDetail
 
 ## Conventions
 

@@ -23,13 +23,6 @@ export const PROVIDER_DISPLAY_NAMES: Record<ProviderName, string> = {
   fpt: "FPT AI Marketplace",
 };
 
-export function detectProviders(): { name: ProviderName; hasKey: boolean }[] {
-  return SUPPORTED_PROVIDERS.map((name) => ({
-    name,
-    hasKey: !!process.env[ENV_KEYS[name]],
-  }));
-}
-
 export function resolveProvider(provider: string, model: string, apiKey?: string, baseUrl?: string): LanguageModel {
   if (!SUPPORTED_PROVIDERS.includes(provider as ProviderName)) {
     throw new Error(`Unknown provider: "${provider}". Supported: ${SUPPORTED_PROVIDERS.join(", ")}`);

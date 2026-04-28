@@ -3,7 +3,7 @@ import { resolve, relative } from "node:path";
 import type { PermissionDecision } from "../../models/events.js";
 
 const MAX_BYTES = 50 * 1024;
-const DEFAULT_LIMIT = 200;
+const DEFAULT_LIMIT = 2000;
 const MAX_LINE_CHARS = 2000;
 
 export interface ReadToolInput {

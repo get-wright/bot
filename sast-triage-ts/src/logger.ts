@@ -11,10 +11,6 @@ export function initLogger(path: string): void {
   writeFileSync(path, `=== sast-triage debug log — ${new Date().toISOString()} ===\n\n`);
 }
 
-export function isLoggingEnabled(): boolean {
-  return enabled;
-}
-
 function write(level: string, category: string, message: string, data?: unknown): void {
   if (!enabled || !logPath) return;
   const ts = new Date().toISOString().slice(11, 23); // HH:mm:ss.SSS

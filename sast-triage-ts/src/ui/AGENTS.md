@@ -10,7 +10,6 @@ Ink 6 + React 19 + `fullscreen-ink`. Three-panel layout with setup flow.
 - `components/findings-table.tsx` — Active findings with status badges, multi-select indicators
 - `components/finding-detail.tsx` — Source code preview with context lines, highlighted flagged lines
 - `components/sidebar.tsx` — Stats, provider info, queue progress, token usage (per-finding + session)
-- `components/verdict-banner.tsx` — Verdict display
 
 ## App State Machine
 
