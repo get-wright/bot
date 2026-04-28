@@ -1,6 +1,5 @@
 import { readFileSync } from "node:fs";
 import { resolve, relative } from "node:path";
-import type { PermissionDecision } from "../../models/events.js";
 
 const MAX_BYTES = 50 * 1024;
 const DEFAULT_LIMIT = 2000;
@@ -12,16 +11,11 @@ export interface ReadToolInput {
   limit?: number;
 }
 
-export interface PermissionCallbacks {
-  isPathAllowed: (absPath: string) => boolean;
-  requestPermission: (absPath: string) => Promise<PermissionDecision>;
-}
-
 export interface ReadTool {
   execute(input: ReadToolInput): Promise<string>;
 }
 
-export function createReadTool(projectRoot: string, permissions?: PermissionCallbacks): ReadTool {
+export function createReadTool(projectRoot: string): ReadTool {
   const root = resolve(projectRoot);
 
   return {
@@ -31,17 +25,7 @@ export function createReadTool(projectRoot: string, permissions?: PermissionCall
       const isOutside = rel.startsWith("..") || rel === abs;
 
       if (isOutside) {
-        if (!permissions) {
-          throw new Error(`Path outside project root: ${path}`);
-        }
-
-        if (!permissions.isPathAllowed(abs)) {
-          const decision = await permissions.requestPermission(abs);
-          if (decision === "deny") {
-            throw new Error(`Access denied: ${path} — outside project root. User denied access.`);
-          }
-          // "once" and "always" both proceed — "always" handling is done by the caller
-        }
+        throw new Error(`Path outside project root: ${path}`);
       }
 
       let buf: Buffer;
