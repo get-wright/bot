@@ -49,22 +49,18 @@ program
       findingsPath,
       provider: opts.provider,
       model: opts.model,
-      headless: opts.headless,
       allowBash: opts.allowBash,
       maxSteps: parseInt(opts.maxSteps, 10),
       memoryDb: opts.memoryDb,
       concurrency: concurrency >= 1 && concurrency <= 10 ? concurrency : undefined,
+      reasoningEffort: opts.effort,
     });
-
-    if (opts.effort) {
-      (config as Record<string, unknown>).reasoningEffort = opts.effort;
-    }
 
     const projectConfig = new ProjectConfig(process.cwd());
     const memory = new MemoryStore(resolve(projectConfig.memoryDbPath));
     const orchestrator = new TriageOrchestrator(memory);
 
-    if (config.headless) {
+    if (opts.headless) {
       if (!config.provider || !config.model) {
         console.error("Headless mode requires --provider and --model");
         process.exit(1);
@@ -74,7 +70,7 @@ program
         process.exit(1);
       }
       const fullConfig = config as AppConfig;
-      fullConfig.apiKey = projectConfig.resolvedApiKey();
+      fullConfig.apiKey = projectConfig.resolvedApiKey() ?? "";
       fullConfig.baseUrl = projectConfig.baseUrl;
       await orchestrator.run(fullConfig);
       memory.close();

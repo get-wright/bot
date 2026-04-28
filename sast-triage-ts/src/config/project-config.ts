@@ -106,8 +106,11 @@ export class ProjectConfig {
     }));
   }
 
-  /** Returns API key: explicit override > saved > env var */
-  resolvedApiKey(): string | undefined {
-    return this.apiKey ?? this.savedApiKeys[this.provider] ?? process.env[ENV_KEYS[this.provider]];
+  /** Returns API key for the given provider (or this.provider if unspecified): explicit override > saved > env var */
+  resolvedApiKey(provider?: ProviderName): string | undefined {
+    const p = provider ?? this.provider;
+    return (p === this.provider ? this.apiKey : undefined)
+        ?? this.savedApiKeys[p]
+        ?? process.env[ENV_KEYS[p]];
   }
 }
