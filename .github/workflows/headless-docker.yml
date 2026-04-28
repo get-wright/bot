@@ -21,6 +21,9 @@ jobs:
         with:
           bun-version: latest
 
+      - name: Install ripgrep (used by grep/glob tools)
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
+
       - name: Install + typecheck + test
         working-directory: sast-triage-ts
         run: |
