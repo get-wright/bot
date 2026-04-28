@@ -34,6 +34,46 @@ describe("parseSemgrepOutput", () => {
     expect(parseSemgrepOutput("not json")).toEqual([]);
   });
 
+  it("accepts cwe as a single string and normalizes to array", () => {
+    const raw = {
+      results: [{
+        check_id: "test.csrf",
+        path: "x.html",
+        start: { line: 1, col: 1 },
+        end: { line: 1, col: 1 },
+        extra: {
+          message: "m",
+          severity: "WARNING",
+          metadata: { cwe: "CWE-352: CSRF" },
+          lines: "<form>",
+        },
+      }],
+    };
+    const parsed = parseSemgrepOutput(raw);
+    expect(parsed).toHaveLength(1);
+    expect(parsed[0]!.extra.metadata.cwe).toEqual(["CWE-352: CSRF"]);
+  });
+
+  it("accepts cwe as array and preserves it", () => {
+    const raw = {
+      results: [{
+        check_id: "test.eval",
+        path: "x.js",
+        start: { line: 1, col: 1 },
+        end: { line: 1, col: 5 },
+        extra: {
+          message: "m",
+          severity: "ERROR",
+          metadata: { cwe: ["CWE-95: eval"] },
+          lines: "eval()",
+        },
+      }],
+    };
+    const parsed = parseSemgrepOutput(raw);
+    expect(parsed).toHaveLength(1);
+    expect(parsed[0]!.extra.metadata.cwe).toEqual(["CWE-95: eval"]);
+  });
+
   it("skips malformed findings", () => {
     const input = {
       results: [
