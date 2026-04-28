@@ -1,6 +1,6 @@
-import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import { parse, stringify } from "smol-toml";
+import { parse } from "smol-toml";
 import { SUPPORTED_PROVIDERS, type ProviderName } from "../provider/registry.js";
 import type { ReasoningEffort } from "../provider/reasoning.js";
 
@@ -97,33 +97,6 @@ export class ProjectConfig {
         this.concurrency = triage.concurrency;
       }
     }
-  }
-
-  save(): void {
-    // Merge current apiKey into savedApiKeys so keys persist across provider switches
-    if (this.apiKey) {
-      this.savedApiKeys[this.provider] = this.apiKey;
-    }
-    const apiKeys = Object.fromEntries(
-      Object.entries(this.savedApiKeys).filter(([, v]) => v),
-    );
-    const data: Record<string, unknown> = {
-      provider: {
-        name: this.provider,
-        model: this.model,
-        ...(Object.keys(apiKeys).length > 0 ? { api_keys: apiKeys } : {}),
-        ...(this.baseUrl ? { base_url: this.baseUrl } : {}),
-        ...(this.reasoningEffort ? { reasoning_effort: this.reasoningEffort } : {}),
-      },
-      memory: {
-        db_path: ".sast-triage/memory.db",
-      },
-      ...(this.allowedPaths.length > 0
-        ? { workspace: { allowed_paths: this.allowedPaths } }
-        : {}),
-      ...(this.concurrency > 1 ? { triage: { concurrency: this.concurrency } } : {}),
-    };
-    writeFileSync(this.tomlPath, stringify(data) + "\n");
   }
 
   detectedProviders(): { name: ProviderName; hasKey: boolean }[] {
