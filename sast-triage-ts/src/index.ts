@@ -76,7 +76,7 @@ program
       const fullConfig = config as AppConfig;
       fullConfig.apiKey = projectConfig.resolvedApiKey();
       fullConfig.baseUrl = projectConfig.baseUrl;
-      await orchestrator.runHeadless(fullConfig);
+      await orchestrator.run(fullConfig);
       memory.close();
       return;
     }

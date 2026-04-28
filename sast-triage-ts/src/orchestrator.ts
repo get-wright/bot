@@ -11,6 +11,8 @@ import { parseSemgrepOutput, fingerprintFinding } from "./parser/semgrep.js";
 import { prefilterFinding } from "./parser/prefilter.js";
 import { runAgentLoop } from "./agent/loop.js";
 import { runFollowUp } from "./agent/follow-up.js";
+import { OutputWriter, type OutputRow } from "./headless/output.js";
+import { formatEvent } from "./headless/reporter.js";
 
 export type FindingStatus = "pending" | "in_progress" | "true_positive" | "false_positive" | "needs_review";
 
@@ -132,7 +134,7 @@ export class TriageOrchestrator {
     return result;
   }
 
-  async runHeadless(config: AppConfig): Promise<void> {
+  async run(config: AppConfig): Promise<void> {
     const { active, filtered, total } = this.loadFindings(config.findingsPath);
 
     if (total === 0) {
@@ -140,33 +142,59 @@ export class TriageOrchestrator {
       process.exit(1);
     }
 
+    const writer = new OutputWriter(config.outputPath, {
+      provider: config.provider,
+      model: config.model,
+      effort: config.reasoningEffort,
+    });
+
     for (const f of filtered) {
       const fp = fingerprintFinding(f.finding);
       console.log(JSON.stringify({ type: "filtered", fingerprint: fp, rule: f.finding.check_id, reason: f.reason }));
     }
 
-    if (active.length === 0) {
-      console.error("No actionable findings after prefilter.");
-      process.exit(1);
+    // 1. Emit cached findings directly without re-auditing
+    const fresh: { finding: Finding; fingerprint: string }[] = [];
+    for (const state of active) {
+      if (state.verdict) {
+        const cachedRecord = this.memory.lookupCached(state.entry.fingerprint);
+        writer.append({
+          finding: state.finding,
+          verdict: state.verdict,
+          tool_calls: cachedRecord?.tool_calls ?? [],
+          input_tokens: cachedRecord?.input_tokens ?? 0,
+          output_tokens: cachedRecord?.output_tokens ?? 0,
+          cached: true,
+          audited_at: state.cachedAt ?? cachedRecord?.updated_at ?? new Date().toISOString(),
+        });
+      } else {
+        fresh.push({ finding: state.finding, fingerprint: state.entry.fingerprint });
+      }
     }
 
-    const items = active.map((s) => ({
-      finding: s.finding,
-      fingerprint: s.entry.fingerprint,
-    }));
+    if (fresh.length === 0) {
+      console.error("All findings already cached; no fresh audits required.");
+      writer.flush();
+      return;
+    }
 
+    // 2. Triage fresh findings via batch
     await this.triageBatch(
-      items,
+      fresh,
       config,
       config.concurrency ?? 1,
       (fingerprint, result) => {
-        console.log(JSON.stringify({ type: "verdict", fingerprint, verdict: result.verdict }));
+        const item = fresh.find((x) => x.fingerprint === fingerprint);
+        if (!item) return;
+        writer.append(toOutputRow(item.finding, result, false, new Date().toISOString()));
       },
       undefined,
       (fingerprint, event) => {
-        console.log(JSON.stringify({ ...event, fingerprint }));
+        console.log(formatEvent(event, fingerprint));
       },
     );
+
+    writer.flush();
   }
 
   async triageBatch(
@@ -257,6 +285,23 @@ export class TriageOrchestrator {
       reasoningEffort: config.reasoningEffort,
     });
   }
+}
+
+function toOutputRow(
+  finding: Finding,
+  result: TriageResult,
+  cached: boolean,
+  auditedAt: string,
+): OutputRow {
+  return {
+    finding,
+    verdict: result.verdict,
+    tool_calls: result.toolCalls.map((t) => ({ tool: t.tool, args: t.args })),
+    input_tokens: result.inputTokens,
+    output_tokens: result.outputTokens,
+    cached,
+    audited_at: auditedAt,
+  };
 }
 
 function synthesizeCachedEvents(cached: CachedRecord | null): AgentEvent[] {
