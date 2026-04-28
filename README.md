@@ -1,3 +1,7 @@
+> **This branch is an archived TUI snapshot.** Active development happens on `main` (headless-only).
+> Last sync with `main`: 0d535de on 2026-04-28.
+> To revive: rebase or cherry-pick from `main` manually. No CI runs against this branch.
+
 # sast-triage
 
 Agentic SAST finding triage. Feed it Semgrep JSON, it investigates each finding by reading code, grepping for context, and delivers a verdict: **true positive**, **false positive**, or **needs review**.
