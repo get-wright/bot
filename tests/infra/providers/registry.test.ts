@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { resolveProvider, SUPPORTED_PROVIDERS, PROVIDER_DISPLAY_NAMES } from "../../src/infra/providers/registry.js";
+import { resolveProvider, SUPPORTED_PROVIDERS, PROVIDER_DISPLAY_NAMES } from "../../../src/infra/providers/registry.js";
 
 describe("resolveProvider", () => {
   it("lists supported providers", () => {

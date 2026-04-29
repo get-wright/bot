@@ -2,8 +2,8 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { resolveConfig } from "../src/cli/config.js";
-import { ProjectConfig } from "../src/cli/project-config.js";
+import { resolveConfig } from "../../src/cli/config.js";
+import { ProjectConfig } from "../../src/cli/project-config.js";
 
 const ENV_KEYS = [
   "SAST_PROVIDER", "SAST_MODEL", "SAST_API_KEY", "SAST_BASE_URL",

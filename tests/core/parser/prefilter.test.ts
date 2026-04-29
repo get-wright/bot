@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { prefilterFinding, type PrefilterResult } from "../../src/core/parser/prefilter.js";
-import { FindingSchema, type Finding } from "../../src/core/models/finding.js";
+import { prefilterFinding, type PrefilterResult } from "../../../src/core/parser/prefilter.js";
+import { FindingSchema, type Finding } from "../../../src/core/models/finding.js";
 
 function makeFinding(overrides: Record<string, unknown> = {}): Finding {
   return FindingSchema.parse({

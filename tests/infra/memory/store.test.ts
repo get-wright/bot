@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { MemoryStore } from "../../src/infra/memory/store.js";
+import { MemoryStore } from "../../../src/infra/memory/store.js";
 
 let tmpDir: string;
 let store: MemoryStore;

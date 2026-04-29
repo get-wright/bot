@@ -2,11 +2,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { resolve, join } from "node:path";
 import { mkdtempSync, rmSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { TriageOrchestrator } from "../src/core/triage/orchestrator.js";
-import { MemoryStore } from "../src/infra/memory/store.js";
-import { fingerprintFinding } from "../src/core/parser/semgrep.js";
-import type { Finding } from "../src/core/models/finding.js";
-import type { AppConfig } from "../src/cli/config.js";
+import { TriageOrchestrator } from "../../../src/core/triage/orchestrator.js";
+import { MemoryStore } from "../../../src/infra/memory/store.js";
+import { fingerprintFinding } from "../../../src/core/parser/semgrep.js";
+import type { Finding } from "../../../src/core/models/finding.js";
+import type { AppConfig } from "../../../src/cli/config.js";
 
 function makeMinimalFinding(): Finding {
   return {
@@ -31,7 +31,7 @@ describe("TriageOrchestrator", () => {
   }
 
   describe("loadFindings", () => {
-    const fixturePath = resolve(import.meta.dirname, "fixtures/semgrep-output.json");
+    const fixturePath = resolve(import.meta.dirname, "../../fixtures/semgrep-output.json");
 
     it("parses and classifies findings from a file", () => {
       const { orchestrator } = createOrchestrator();
@@ -101,7 +101,7 @@ describe("TriageOrchestrator", () => {
         };
       });
 
-      const fixturePath = resolve(import.meta.dirname, "fixtures/semgrep-output.json");
+      const fixturePath = resolve(import.meta.dirname, "../../fixtures/semgrep-output.json");
       const loaded = orchestrator.loadFindings(fixturePath);
       const base = loaded.active.map((s) => ({
         finding: s.finding,
@@ -153,7 +153,7 @@ describe("TriageOrchestrator", () => {
         };
       }) as any;
 
-      const fixturePath = resolve(import.meta.dirname, "fixtures/semgrep-output.json");
+      const fixturePath = resolve(import.meta.dirname, "../../fixtures/semgrep-output.json");
       const loaded = orchestrator.loadFindings(fixturePath);
       const base = loaded.active.map((s) => ({
         finding: s.finding,

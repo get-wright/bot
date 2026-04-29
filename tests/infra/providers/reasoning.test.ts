@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { resolveProviderOptions } from "../../src/infra/providers/reasoning.js";
+import { resolveProviderOptions } from "../../../src/infra/providers/reasoning.js";
 
 describe("resolveProviderOptions", () => {
   it("returns OpenAI reasoningEffort for openai provider", () => {

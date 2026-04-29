@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { DoomLoopDetector } from "../../src/core/agent/doom-loop.js";
+import { DoomLoopDetector } from "../../../src/core/agent/doom-loop.js";
 
 describe("DoomLoopDetector", () => {
   it("does not trigger for different calls", () => {

@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { execSync } from "node:child_process";
 import { resolve } from "node:path";
 
-const ENTRY = resolve(import.meta.dirname, "../src/index.ts");
+const ENTRY = resolve(import.meta.dirname, "../../src/index.ts");
 
 // Clear all provider env vars so the second test always hits missing-required-config.
 const cleanEnv = {

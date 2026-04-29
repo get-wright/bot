@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
-import type { AgentLoopConfig } from "../../src/core/agent/loop.js";
-import type { AgentEvent } from "../../src/core/models/events.js";
-import { FindingSchema } from "../../src/core/models/finding.js";
+import type { AgentLoopConfig } from "../../../src/core/agent/loop.js";
+import type { AgentEvent } from "../../../src/core/models/events.js";
+import { FindingSchema } from "../../../src/core/models/finding.js";
 
 const TEST_FINDING = FindingSchema.parse({
   check_id: "test.rule",
@@ -19,7 +19,7 @@ const TEST_FINDING = FindingSchema.parse({
 
 describe("runAgentLoop", () => {
   it("exports runAgentLoop function", async () => {
-    const { runAgentLoop } = await import("../../src/core/agent/loop.js");
+    const { runAgentLoop } = await import("../../../src/core/agent/loop.js");
     expect(typeof runAgentLoop).toBe("function");
   });
 

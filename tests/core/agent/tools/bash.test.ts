@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { mkdtempSync, writeFileSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createBashTool } from "../../../src/core/agent/tools/bash.js";
+import { createBashTool } from "../../../../src/core/agent/tools/bash.js";
 
 function makeTempDir(): string {
   return mkdtempSync(join(tmpdir(), "sast-triage-bash-"));

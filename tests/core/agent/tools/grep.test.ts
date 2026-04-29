@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createGrepTool } from "../../../src/core/agent/tools/grep.js";
+import { createGrepTool } from "../../../../src/core/agent/tools/grep.js";
 
 function makeTempDir(): string {
   return mkdtempSync(join(tmpdir(), "sast-triage-grep-"));

@@ -5,9 +5,9 @@ import {
   parseSemgrepOutput,
   fingerprintFinding,
   classifyFinding,
-} from "../../src/core/parser/semgrep.js";
+} from "../../../src/core/parser/semgrep.js";
 
-const FIXTURES = resolve(import.meta.dirname, "../fixtures");
+const FIXTURES = resolve(import.meta.dirname, "../../fixtures");
 
 describe("parseSemgrepOutput", () => {
   it("parses JSON object with results array", () => {

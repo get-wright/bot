@@ -5,9 +5,9 @@ import {
   FindingSchema,
   SemgrepOutputSchema,
   type Finding,
-} from "../../src/core/models/finding.js";
+} from "../../../src/core/models/finding.js";
 
-const FIXTURES = resolve(import.meta.dirname, "../fixtures");
+const FIXTURES = resolve(import.meta.dirname, "../../fixtures");
 
 describe("FindingSchema", () => {
   it("parses a pattern finding", () => {
