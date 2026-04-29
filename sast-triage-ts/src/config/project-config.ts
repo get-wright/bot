@@ -1,6 +1,6 @@
-import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import { parse, stringify } from "smol-toml";
+import { parse } from "smol-toml";
 import { SUPPORTED_PROVIDERS, type ProviderName } from "../provider/registry.js";
 import type { ReasoningEffort } from "../provider/reasoning.js";
 
@@ -24,6 +24,7 @@ export class ProjectConfig {
   memoryDbPath: string;
   reasoningEffort: ReasoningEffort | undefined;
   allowedPaths: string[] = [];
+  concurrency = 1;
   savedApiKeys: Partial<Record<ProviderName, string>> = {};
 
   constructor(workspace: string) {
@@ -62,12 +63,12 @@ export class ProjectConfig {
         // Store all provider keys so detectedProviders() can show them
         for (const [name, key] of Object.entries(apiKeys)) {
           if (SUPPORTED_PROVIDERS.includes(name as ProviderName) && typeof key === "string") {
-            this.savedApiKeys[name as ProviderName] = key;
+            this.savedApiKeys[name as ProviderName] = key.trim();
           }
         }
         // Try current provider first, then any key
         const key = apiKeys[this.provider] ?? Object.values(apiKeys)[0];
-        if (key) this.apiKey = key;
+        if (key) this.apiKey = key.trim();
       }
 
       if (typeof provider.reasoning_effort === "string") {
@@ -89,32 +90,13 @@ export class ProjectConfig {
         (p): p is string => typeof p === "string",
       );
     }
-  }
 
-  save(): void {
-    // Merge current apiKey into savedApiKeys so keys persist across provider switches
-    if (this.apiKey) {
-      this.savedApiKeys[this.provider] = this.apiKey;
+    const triage = data.triage as Record<string, unknown> | undefined;
+    if (triage) {
+      if (typeof triage.concurrency === "number" && triage.concurrency >= 1 && triage.concurrency <= 10) {
+        this.concurrency = triage.concurrency;
+      }
     }
-    const apiKeys = Object.fromEntries(
-      Object.entries(this.savedApiKeys).filter(([, v]) => v),
-    );
-    const data: Record<string, unknown> = {
-      provider: {
-        name: this.provider,
-        model: this.model,
-        ...(Object.keys(apiKeys).length > 0 ? { api_keys: apiKeys } : {}),
-        ...(this.baseUrl ? { base_url: this.baseUrl } : {}),
-        ...(this.reasoningEffort ? { reasoning_effort: this.reasoningEffort } : {}),
-      },
-      memory: {
-        db_path: ".sast-triage/memory.db",
-      },
-      ...(this.allowedPaths.length > 0
-        ? { workspace: { allowed_paths: this.allowedPaths } }
-        : {}),
-    };
-    writeFileSync(this.tomlPath, stringify(data) + "\n");
   }
 
   detectedProviders(): { name: ProviderName; hasKey: boolean }[] {
@@ -124,8 +106,11 @@ export class ProjectConfig {
     }));
   }
 
-  /** Returns API key: explicit override > saved > env var */
-  resolvedApiKey(): string | undefined {
-    return this.apiKey ?? this.savedApiKeys[this.provider] ?? process.env[ENV_KEYS[this.provider]];
+  /** Returns API key for the given provider (or this.provider if unspecified): explicit override > saved > env var */
+  resolvedApiKey(provider?: ProviderName): string | undefined {
+    const p = provider ?? this.provider;
+    return (p === this.provider ? this.apiKey : undefined)
+        ?? this.savedApiKeys[p]
+        ?? process.env[ENV_KEYS[p]];
   }
 }

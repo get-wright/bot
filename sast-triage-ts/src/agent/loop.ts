@@ -4,14 +4,12 @@ import { VerdictValue } from "../models/verdict.js";
 import type { Finding } from "../models/finding.js";
 import type { TriageVerdict } from "../models/verdict.js";
 import type { AgentEvent } from "../models/events.js";
-import type { PermissionDecision } from "../models/events.js";
 import { TriageVerdictSchema } from "../models/verdict.js";
 import { SYSTEM_PROMPT, formatFindingMessage } from "./system-prompt.js";
 import { DoomLoopDetector } from "./doom-loop.js";
 import { createTools } from "./tools/index.js";
 import { resolveProvider } from "../provider/registry.js";
 import { resolveProviderOptions, type ReasoningEffort } from "../provider/reasoning.js";
-import { dirname } from "node:path";
 import { log } from "../logger.js";
 
 export interface AgentLoopConfig {
@@ -26,7 +24,6 @@ export interface AgentLoopConfig {
   apiKey?: string;
   baseUrl?: string;
   reasoningEffort?: ReasoningEffort;
-  allowedPaths?: string[];
 }
 
 export interface AgentLoopResult {
@@ -34,6 +31,31 @@ export interface AgentLoopResult {
   toolCalls: { tool: string; args: Record<string, unknown> }[];
   inputTokens: number;
   outputTokens: number;
+}
+
+/** Check if an error is transient and worth retrying (rate limit, 5xx, empty response). */
+function isRetryableError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+
+  let current: unknown = err;
+  const seen = new Set<unknown>();
+
+  while (current instanceof Error && !seen.has(current)) {
+    seen.add(current);
+    const anyErr = current as unknown as Record<string, unknown>;
+    if (typeof anyErr.statusCode === "number") {
+      const code = anyErr.statusCode;
+      if (code === 429 || code >= 500) return true;
+      if (code === 401 || code === 402 || code === 403) return false;
+    }
+    current = (current as Error).cause;
+  }
+
+  const msg = err instanceof Error ? err.message : String(err);
+  // Non-retryable errors by message (when statusCode not available)
+  if (msg === "Forbidden" || msg.includes("Unauthorized") || msg.includes("forbidden")) return false;
+  if (msg.includes("No output generated") || msg.includes("Check the stream")) return true;
+  return false;
 }
 
 /** Extract the most useful error message, digging into cause chains.
@@ -92,8 +114,11 @@ function extractErrorMessage(err: unknown): string {
   // Fallback: use provider message or original error
   if (providerMessage) return providerMessage;
 
-  // Strip useless AI SDK wrapper messages
+  // Handle known AI SDK error names
   const msg = err instanceof Error ? err.message : String(err);
+  if (msg === "Forbidden") {
+    return "Forbidden (403). The API key may lack permission for this model.";
+  }
   if (msg.includes("No output generated") || msg.includes("Check the stream")) {
     return "No response from provider. The model may be unavailable or overloaded.";
   }
@@ -108,34 +133,12 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
 
   const languageModel = resolveProvider(provider, modelId, config.apiKey, config.baseUrl);
 
-  const sessionApproved = new Set<string>(config.allowedPaths ?? []);
-
-  const isPathAllowed = (absPath: string): boolean => {
-    return [...sessionApproved].some(
-      (dir) => absPath === dir || absPath.startsWith(dir.endsWith("/") ? dir : dir + "/"),
-    );
-  };
-
-  const requestPermission = (absPath: string): Promise<PermissionDecision> => {
-    return new Promise<PermissionDecision>((resolvePromise) => {
-      const dir = dirname(absPath);
-      onEvent({
-        type: "permission_request",
-        path: absPath,
-        directory: dir,
-        resolve: (decision) => {
-          if (decision === "always") {
-            sessionApproved.add(dir);
-          }
-          resolvePromise(decision);
-        },
-      });
-    });
-  };
-
-  const tools = createTools({ projectRoot, allowBash, permissions: { isPathAllowed, requestPermission } });
+  const tools = createTools({ projectRoot, allowBash });
   const doomLoop = new DoomLoopDetector();
   let finalVerdict: TriageVerdict | null = null;
+  // Capture the real API error from onError callback — streamText swallows
+  // these and throws AI_NoOutputGeneratedError, hiding the actual cause.
+  let lastStreamApiError: unknown = null;
   // Capture the model's text output during investigation — used as reasoning
   // fallback if the model returns a partial verdict from generateObject.
   let accumulatedText = "";
@@ -144,6 +147,8 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
   const capturedToolCalls: { tool: string; args: Record<string, unknown> }[] = [];
   let capturedInputTokens = 0;
   let capturedOutputTokens = 0;
+  // Track tool call start times for duration measurement
+  const toolStartTimes = new Map<string, number>();
 
   const systemPromptParts = [SYSTEM_PROMPT];
   if (memoryHints.length > 0) {
@@ -164,7 +169,18 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
     messages: [{ role: "user", content: userMessage }],
     tools,
     providerOptions,
+    maxRetries: 3,
     stopWhen: stepCountIs(maxSteps),
+    onError({ error }) {
+      // Capture the real API error — streamText swallows it and throws
+      // AI_NoOutputGeneratedError instead, hiding the actual cause (e.g. 403).
+      lastStreamApiError = error;
+      log.error("stream", "streamText onError callback", {
+        message: error instanceof Error ? error.message : String(error),
+        name: error instanceof Error ? error.name : undefined,
+        cause: error instanceof Error && error.cause ? String(error.cause) : undefined,
+      });
+    },
     async prepareStep({ stepNumber }) {
       log.debug("agent", `Step ${stepNumber + 1}/${maxSteps}${finalVerdict ? " (verdict already delivered)" : ""}`);
       // Skip overrides if verdict already delivered — no need to waste steps
@@ -189,7 +205,6 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
     onChunk({ chunk }) {
       switch (chunk.type) {
         case "text-delta": {
-          log.debug("stream", "text-delta", chunk.text.slice(0, 100));
           accumulatedText += chunk.text;
           onEvent({ type: "thinking", delta: chunk.text });
           break;
@@ -198,6 +213,7 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
           const toolName = chunk.toolName;
           const args = chunk.input as Record<string, unknown>;
           log.info("tool", `${toolName}`, args);
+          toolStartTimes.set(chunk.toolCallId, performance.now());
           onEvent({ type: "tool_start", tool: toolName, args });
           doomLoop.record(toolName, args);
 
@@ -218,12 +234,16 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
         case "tool-result": {
           const output = String(chunk.output);
           const lines = output.split("\n");
-          log.debug("tool", `${chunk.toolName} result: ${lines.length} lines, ${output.length} bytes`);
+          const startTime = toolStartTimes.get(chunk.toolCallId);
+          const durationMs = startTime ? Math.round(performance.now() - startTime) : 0;
+          if (startTime) toolStartTimes.delete(chunk.toolCallId);
+          const success = !output.startsWith("Command failed:") && !output.startsWith("Error:");
+          log.info("tool", `${chunk.toolName} ${success ? "OK" : "FAIL"} ${durationMs}ms — ${lines.length} lines, ${output.length} bytes`);
           const summary =
             lines.length > 3
               ? lines.slice(0, 3).join("\n") + `\n... (${lines.length} lines)`
               : output;
-          onEvent({ type: "tool_result", tool: chunk.toolName, summary, full: output });
+          onEvent({ type: "tool_result", tool: chunk.toolName, summary, full: output, durationMs, success });
           break;
         }
       }
@@ -241,30 +261,157 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
     },
   });
 
-  // Consume the stream to completion
-  try {
-    await result.text;
-  } catch (err) {
-    const message = extractErrorMessage(err);
-    log.error("agent", `API error: ${message}`);
-    onEvent({ type: "error", message: `API error: ${message}` });
+  // Consume the stream to completion, with retry on transient errors
+  const MAX_STREAM_RETRIES = 2;
+  let streamAttempt = 0;
+  let lastStreamError: unknown;
+
+  const consumeStream = async () => {
+    try {
+      await result.text;
+      lastStreamError = undefined;
+      lastStreamApiError = null;
+    } catch (err) {
+      // Prefer the real API error captured by onError over the generic
+      // AI_NoOutputGeneratedError thrown by streamText
+      const realError = lastStreamApiError ?? err;
+      lastStreamError = realError;
+      const message = extractErrorMessage(realError);
+      log.error("agent", `API error (attempt ${streamAttempt + 1}): ${message}`, {
+        errorName: realError instanceof Error ? realError.name : undefined,
+        rawMessage: realError instanceof Error ? realError.message : String(realError),
+      });
+      onEvent({ type: "error", message: `API error: ${message}` });
+    }
+  };
+
+  await consumeStream();
+
+  // Retry the entire streamText call if we got a transient error and no verdict
+  while (lastStreamError && !finalVerdict && isRetryableError(lastStreamError) && streamAttempt < MAX_STREAM_RETRIES) {
+    streamAttempt++;
+    const delayMs = 1000 * Math.pow(2, streamAttempt - 1); // 1s, 2s
+    log.info("agent", `Retrying stream (attempt ${streamAttempt + 1}) after ${delayMs}ms delay`);
+    onEvent({ type: "error", message: `Retrying in ${delayMs / 1000}s...` });
+    await new Promise((r) => setTimeout(r, delayMs));
+
+    // Reset state for retry
+    accumulatedText = "";
+    finalVerdict = null;
+
+    const retryResult = streamText({
+      model: languageModel,
+      system: systemPrompt,
+      messages: [{ role: "user", content: userMessage }],
+      tools,
+      providerOptions,
+      maxRetries: 3,
+      stopWhen: stepCountIs(maxSteps),
+      async prepareStep({ stepNumber }) {
+        if (finalVerdict) return;
+        if (stepNumber === maxSteps - 2) {
+          return {
+            system: systemPrompt +
+              "\n\nIMPORTANT: You have 1 step remaining after this one. Wrap up your investigation and call the verdict tool with your best assessment based on the evidence gathered so far.",
+          };
+        }
+        if (stepNumber === maxSteps - 1) {
+          return {
+            toolChoice: { type: "tool" as const, toolName: "verdict" },
+            activeTools: ["verdict"] as any,
+            system: systemPrompt +
+              "\n\nThis is your FINAL step. You MUST call the verdict tool now. Deliver your verdict based on all evidence gathered.",
+          };
+        }
+      },
+      onChunk({ chunk }) {
+        switch (chunk.type) {
+          case "text-delta":
+            accumulatedText += chunk.text;
+            onEvent({ type: "thinking", delta: chunk.text });
+            break;
+          case "tool-call": {
+            const toolName = chunk.toolName;
+            const args = chunk.input as Record<string, unknown>;
+            toolStartTimes.set(chunk.toolCallId, performance.now());
+            onEvent({ type: "tool_start", tool: toolName, args });
+            doomLoop.record(toolName, args);
+            if (toolName === "verdict") {
+              try { finalVerdict = TriageVerdictSchema.parse(args); } catch { /* invalid */ }
+            } else {
+              capturedToolCalls.push({ tool: toolName, args });
+            }
+            break;
+          }
+          case "tool-result": {
+            const output = String(chunk.output);
+            const lines = output.split("\n");
+            const startTime = toolStartTimes.get(chunk.toolCallId);
+            const durationMs = startTime ? Math.round(performance.now() - startTime) : 0;
+            if (startTime) toolStartTimes.delete(chunk.toolCallId);
+            const success = !output.startsWith("Command failed:") && !output.startsWith("Error:");
+            const summary = lines.length > 3 ? lines.slice(0, 3).join("\n") + `\n... (${lines.length} lines)` : output;
+            onEvent({ type: "tool_result", tool: chunk.toolName, summary, full: output, durationMs, success });
+            break;
+          }
+        }
+      },
+      onStepFinish() {
+        const status = doomLoop.check();
+        if (status === "warn") {
+          doomLoop.acknowledge();
+          onEvent({ type: "error", message: "Doom loop detected: same tool called with identical arguments 3 times. Try a different approach." });
+        }
+      },
+    });
+
+    try {
+      await retryResult.text;
+      lastStreamError = undefined;
+      // Capture token usage from retry
+      try {
+        const retryUsage = await retryResult.totalUsage;
+        capturedInputTokens += retryUsage.inputTokens ?? 0;
+        capturedOutputTokens += retryUsage.outputTokens ?? 0;
+      } catch { /* usage not available */ }
+    } catch (err) {
+      lastStreamError = err;
+      const message = extractErrorMessage(err);
+      log.error("agent", `API error (attempt ${streamAttempt + 1}): ${message}`);
+      onEvent({ type: "error", message: `API error: ${message}` });
+    }
   }
 
   // If verdict came from tool call, backfill missing reasoning/evidence from
-  // the model's accumulated text. Weak models (GLM-4.7) often call the verdict
-  // tool with empty reasoning/evidence after writing the analysis as text.
+  // the model's accumulated text or tool call history. Weak models (GLM-4.7)
+  // often call the verdict tool with empty reasoning/evidence after writing
+  // the analysis as text, or skip text entirely and go straight to verdict.
   if (finalVerdict !== null) {
     const v: TriageVerdict = finalVerdict;
     const needsBackfill = !v.reasoning.trim() || v.key_evidence.length === 0;
     if (needsBackfill) {
       const synthesized = accumulatedText.trim().slice(0, 2000);
+      // If no accumulated text, build reasoning from tool call history
+      const toolSummary = !synthesized && capturedToolCalls.length > 0
+        ? capturedToolCalls.map((tc) => {
+            if (tc.tool === "read") return `Read ${tc.args.path}${tc.args.offset ? `:${tc.args.offset}-${(tc.args.offset as number) + ((tc.args.limit as number) ?? 200) - 1}` : ""}`;
+            if (tc.tool === "grep") return `Grep ${tc.args.pattern} in ${tc.args.path ?? "project"}`;
+            if (tc.tool === "glob") return `Glob ${tc.args.pattern}`;
+            return `${tc.tool}(${JSON.stringify(tc.args).slice(0, 80)})`;
+          }).join("; ")
+        : "";
       const backfilledReasoning = v.reasoning.trim()
         || synthesized
-        || "Model did not provide detailed reasoning.";
+        || (toolSummary ? `Investigated: ${toolSummary}` : "Model did not provide detailed reasoning.");
+      const backfilledEvidence = v.key_evidence.length > 0
+        ? v.key_evidence
+        : capturedToolCalls
+            .filter((tc) => tc.tool === "read" || tc.tool === "grep")
+            .map((tc) => tc.tool === "read" ? `${tc.args.path}` : `grep ${tc.args.pattern}`);
       finalVerdict = {
         verdict: v.verdict,
         reasoning: backfilledReasoning,
-        key_evidence: v.key_evidence,
+        key_evidence: backfilledEvidence,
         suggested_fix: v.suggested_fix,
       };
       log.info("agent", "Backfilled verdict from accumulated text", {

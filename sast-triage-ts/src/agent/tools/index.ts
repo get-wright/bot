@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { tool, type ToolSet } from "ai";
-import { createReadTool, type PermissionCallbacks } from "./read.js";
+import { createReadTool } from "./read.js";
 import { createGrepTool } from "./grep.js";
 import { createGlobTool } from "./glob.js";
 import { createBashTool } from "./bash.js";
@@ -9,11 +9,10 @@ import { TriageVerdictSchema } from "../../models/verdict.js";
 export interface ToolConfig {
   projectRoot: string;
   allowBash: boolean;
-  permissions?: PermissionCallbacks;
 }
 
 export function createTools(config: ToolConfig): ToolSet {
-  const readImpl = createReadTool(config.projectRoot, config.permissions);
+  const readImpl = createReadTool(config.projectRoot);
   const grepImpl = createGrepTool(config.projectRoot);
   const globImpl = createGlobTool(config.projectRoot);
 
@@ -24,7 +23,7 @@ export function createTools(config: ToolConfig): ToolSet {
       inputSchema: z.object({
         path: z.string().describe("File path relative to project root"),
         offset: z.number().optional().describe("Start line (1-indexed, default 1)"),
-        limit: z.number().optional().describe("Max lines to read (default 200)"),
+        limit: z.number().optional().describe("Max lines to read (default 2000)"),
       }),
       execute: async (args) => readImpl.execute(args),
     }),
@@ -49,7 +48,7 @@ export function createTools(config: ToolConfig): ToolSet {
     }),
     verdict: tool({
       description:
-        "Deliver your final triage verdict. Call this when you have enough evidence. This ends the investigation.",
+        "Deliver your final triage verdict. Call this when you have enough evidence. This ends the investigation. Do NOT repeat or summarize your analysis after calling this tool.",
       inputSchema: TriageVerdictSchema,
       execute: async (args) => JSON.stringify(args),
     }),

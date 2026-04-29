@@ -59,7 +59,9 @@ export type DataflowTrace = z.infer<typeof DataflowTraceSchema>;
 
 export const SemgrepMetadataSchema = z
   .object({
-    cwe: z.array(z.string()).default([]),
+    cwe: z.union([z.string(), z.array(z.string())])
+      .transform((v) => Array.isArray(v) ? v : [v])
+      .default([]),
     confidence: z.string().default("MEDIUM"),
     category: z.string().default("security"),
     technology: z.array(z.string()).default([]),

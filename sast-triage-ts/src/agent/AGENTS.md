@@ -4,11 +4,11 @@ Core LLM-driven investigation loop. The agent explores the codebase via tools an
 
 ## Key Files
 
-- `loop.ts` — `runAgentLoop()` returns `AgentLoopResult = { verdict, toolCalls, inputTokens, outputTokens }`. Orchestrates `streamText` with tools, `prepareStep` hook, permission callbacks, `accumulatedText` buffering, `generateObject` fallback, token usage, error extraction.
+- `loop.ts` — `runAgentLoop()` returns `AgentLoopResult = { verdict, toolCalls, inputTokens, outputTokens }`. Orchestrates `streamText` with tools, `prepareStep` hook, `accumulatedText` buffering, `generateObject` fallback, token usage, error extraction.
 - `follow-up.ts` — `runFollowUp()`: conversational follow-up on a delivered verdict (no tools, streaming text only)
 - `doom-loop.ts` — `DoomLoopDetector`: detects repeated tool calls with identical args and injects a warning message
 - `system-prompt.ts` — system prompt template + `formatFindingMessage()` for finding context
-- `tools/` — read, grep, glob, bash, verdict. Read tool has permission callbacks for out-of-root file access.
+- `tools/` — read, grep, glob, bash, verdict.
 
 ## Agent Loop Flow
 
@@ -17,7 +17,7 @@ Core LLM-driven investigation loop. The agent explores the codebase via tools an
    - Step N-2: injects "wrap up" warning into system prompt
    - Step N-1: restricts `activeTools` to verdict only + `toolChoice: { type: "tool", toolName: "verdict" }`
    - Skipped entirely if verdict already delivered
-3. Events emitted: `tool_start`, `tool_result`, `thinking`, `verdict`, `error`, `permission_request`, `usage`, `followup_start`
+3. Events emitted: `tool_start`, `tool_result`, `thinking`, `verdict`, `error`, `usage`, `followup_start`
 4. Text deltas buffered into `accumulatedText` for backfill synthesis
 5. Non-verdict tool calls captured into `capturedToolCalls` for persistence
 6. `extractErrorMessage()` walks cause chains for actionable messages (429 rate limit with retry-after, 401/402 auth, 5xx server errors)
@@ -40,13 +40,6 @@ Both failure modes use `accumulatedText` (the model's own analysis from text-del
 - **Mode 2** → at end-of-stream, check the tool-call verdict for empty fields; backfill from `accumulatedText` before emitting the verdict event.
 
 **Why lenient schema:** strict constraints (`min(20)`, `min(1)`) cause `generateObject` to throw on weak models, losing even the verdict. Accept whatever comes back, then backfill from the already-available text stream.
-
-## Permission Model
-
-Out-of-root file access uses deferred-promise pattern (inspired by Opencode):
-- `isPathAllowed(absPath)` checks session-approved set + `allowedPaths` whitelist
-- `requestPermission(absPath)` emits `permission_request` event, returns a Promise resolved by the TUI
-- Decisions: `"once"` (this path only), `"always"` (add to session set), `"deny"`
 
 ## Tools
 

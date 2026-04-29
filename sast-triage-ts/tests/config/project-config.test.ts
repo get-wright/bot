@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { ProjectConfig } from "../../src/config/project-config.js";
 
@@ -38,25 +38,6 @@ describe("ProjectConfig", () => {
     expect(cfg.apiKey).toBe("sk-ant-test");
   });
 
-  it("save() writes toml and round-trips", () => {
-    const cfg = new ProjectConfig(workspace);
-    cfg.provider = "google";
-    cfg.model = "gemini-2.5-pro";
-    cfg.apiKey = "AIza-test";
-    cfg.save();
-
-    const raw = readFileSync(join(workspace, ".sast-triage.toml"), "utf-8");
-    expect(raw).toContain('name = "google"');
-    expect(raw).toContain('model = "gemini-2.5-pro"');
-    expect(raw).toContain('google = "AIza-test"');
-
-    // Round-trip
-    const cfg2 = new ProjectConfig(workspace);
-    expect(cfg2.provider).toBe("google");
-    expect(cfg2.model).toBe("gemini-2.5-pro");
-    expect(cfg2.apiKey).toBe("AIza-test");
-  });
-
   it("detectedProviders checks env vars", () => {
     const cfg = new ProjectConfig(workspace);
     const detected = cfg.detectedProviders();
@@ -66,14 +47,21 @@ describe("ProjectConfig", () => {
     expect(detected[0]).toHaveProperty("hasKey");
   });
 
-  it("hasConfig() returns false with no toml, true after save", () => {
+  it("hasConfig() returns false when no toml exists", () => {
     const cfg = new ProjectConfig(workspace);
     expect(cfg.hasConfig()).toBe(false);
-    cfg.save();
+  });
+
+  it("hasConfig() returns true when toml exists", () => {
+    writeFileSync(
+      join(workspace, ".sast-triage.toml"),
+      '[provider]\nname = "openai"\nmodel = "gpt-4o"\n',
+    );
+    const cfg = new ProjectConfig(workspace);
     expect(cfg.hasConfig()).toBe(true);
   });
 
-  it("loads and saves reasoning_effort", () => {
+  it("loads reasoning_effort from toml", () => {
     writeFileSync(
       join(workspace, ".sast-triage.toml"),
       [
@@ -85,15 +73,9 @@ describe("ProjectConfig", () => {
     );
     const cfg = new ProjectConfig(workspace);
     expect(cfg.reasoningEffort).toBe("high");
-
-    cfg.reasoningEffort = "low";
-    cfg.save();
-
-    const cfg2 = new ProjectConfig(workspace);
-    expect(cfg2.reasoningEffort).toBe("low");
   });
 
-  it("loads and saves allowed_paths", () => {
+  it("loads allowed_paths from toml", () => {
     writeFileSync(
       join(workspace, ".sast-triage.toml"),
       [
@@ -107,17 +89,63 @@ describe("ProjectConfig", () => {
     );
     const cfg = new ProjectConfig(workspace);
     expect(cfg.allowedPaths).toEqual(["/tmp/extra", "/opt/lib"]);
-
-    cfg.allowedPaths = ["/new/path"];
-    cfg.save();
-
-    const cfg2 = new ProjectConfig(workspace);
-    expect(cfg2.allowedPaths).toEqual(["/new/path"]);
   });
 
   it("defaults reasoning_effort to undefined and allowed_paths to empty", () => {
     const cfg = new ProjectConfig(workspace);
     expect(cfg.reasoningEffort).toBeUndefined();
     expect(cfg.allowedPaths).toEqual([]);
+  });
+
+  it("defaults concurrency to 1", () => {
+    const cfg = new ProjectConfig(workspace);
+    expect(cfg.concurrency).toBe(1);
+  });
+
+  it("loads concurrency from toml", () => {
+    writeFileSync(
+      join(workspace, ".sast-triage.toml"),
+      '[provider]\nname = "openai"\nmodel = "gpt-4o"\n\n[triage]\nconcurrency = 5\n',
+    );
+    const cfg = new ProjectConfig(workspace);
+    expect(cfg.concurrency).toBe(5);
+  });
+
+  it("savedApiKeys populated from [provider.api_keys]", () => {
+    writeFileSync(
+      join(workspace, ".sast-triage.toml"),
+      [
+        "[provider]",
+        'name = "openai"',
+        'model = "gpt-4o"',
+        "",
+        "[provider.api_keys]",
+        'openai = "sk-openai"',
+        'anthropic = "sk-ant"',
+      ].join("\n"),
+    );
+    const cfg = new ProjectConfig(workspace);
+    expect(cfg.savedApiKeys.openai).toBe("sk-openai");
+    expect(cfg.savedApiKeys.anthropic).toBe("sk-ant");
+  });
+
+  it("resolvedApiKey returns apiKey over savedApiKeys over env", () => {
+    writeFileSync(
+      join(workspace, ".sast-triage.toml"),
+      [
+        "[provider]",
+        'name = "openai"',
+        'model = "gpt-4o"',
+        "",
+        "[provider.api_keys]",
+        'openai = "sk-saved"',
+      ].join("\n"),
+    );
+    const cfg = new ProjectConfig(workspace);
+    // savedApiKey picked up when no explicit override
+    expect(cfg.resolvedApiKey()).toBe("sk-saved");
+    // explicit override wins
+    cfg.apiKey = "sk-explicit";
+    expect(cfg.resolvedApiKey()).toBe("sk-explicit");
   });
 });

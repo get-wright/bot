@@ -17,6 +17,9 @@ __pycache__/
 .sast-triage/
 sast-triage-ts/.sast-triage/
 
+# Docs (specs, plans)
+docs/
+
 # IDE / tooling
 .claude/
 .superpowers/
