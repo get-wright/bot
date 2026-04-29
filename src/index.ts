@@ -5,7 +5,7 @@ import { Command } from "commander";
 import { resolveConfig, validateConfig } from "./config.js";
 import { MemoryStore } from "./memory/store.js";
 import { ProjectConfig } from "./config/project-config.js";
-import { TriageOrchestrator } from "./orchestrator.js";
+import { TriageOrchestrator } from "./core/triage/orchestrator.js";
 import { initLogger, log } from "./logger.js";
 import { initTracing, hasLangSmithConfig } from "./tracing.js";
 
