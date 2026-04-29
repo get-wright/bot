@@ -8,8 +8,8 @@ import { TriageVerdictSchema } from "../models/verdict.js";
 import { SYSTEM_PROMPT, formatFindingMessage } from "./system-prompt.js";
 import { DoomLoopDetector } from "./doom-loop.js";
 import { createTools } from "./tools/index.js";
-import { resolveProvider } from "../../provider/registry.js";
-import { resolveProviderOptions, type ReasoningEffort } from "../../provider/reasoning.js";
+import { resolveProvider } from "../../infra/providers/registry.js";
+import { resolveProviderOptions, type ReasoningEffort } from "../../infra/providers/reasoning.js";
 import { log } from "../../logger.js";
 
 export interface AgentLoopConfig {

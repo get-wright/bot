@@ -1,8 +1,8 @@
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { parse } from "smol-toml";
-import { SUPPORTED_PROVIDERS, type ProviderName } from "../provider/registry.js";
-import type { ReasoningEffort } from "../provider/reasoning.js";
+import { SUPPORTED_PROVIDERS, type ProviderName } from "../infra/providers/registry.js";
+import type { ReasoningEffort } from "../infra/providers/reasoning.js";
 
 const TOML_FILE = ".sast-triage.toml";
 

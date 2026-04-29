@@ -2,7 +2,7 @@ import { createOpenAI } from "@ai-sdk/openai";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import type { LanguageModel } from "ai";
-import { log } from "../logger.js";
+import { log } from "../../logger.js";
 
 export const SUPPORTED_PROVIDERS = ["openai", "anthropic", "google", "openrouter", "fpt"] as const;
 export type ProviderName = (typeof SUPPORTED_PROVIDERS)[number];
