@@ -1,7 +1,7 @@
 import { writeFileSync, accessSync, constants, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import type { Finding } from "../core/models/finding.js";
-import type { VerdictValue } from "../core/models/verdict.js";
+import type { Finding } from "../../core/models/finding.js";
+import type { VerdictValue } from "../../core/models/verdict.js";
 
 export interface OutputRow {
   finding: Finding;

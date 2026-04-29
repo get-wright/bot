@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { formatEvent } from "../../src/headless/reporter.js";
+import { formatEvent } from "../../src/infra/output/reporter.js";
 import type { AgentEvent } from "../../src/core/models/events.js";
 
 describe("formatEvent", () => {

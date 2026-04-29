@@ -11,8 +11,8 @@ import { parseSemgrepOutput, fingerprintFinding } from "../parser/semgrep.js";
 import { prefilterFinding } from "../parser/prefilter.js";
 import { runAgentLoop } from "../agent/loop.js";
 import { runFollowUp } from "../agent/follow-up.js";
-import { OutputWriter, type OutputRow } from "../../headless/output.js";
-import { formatEvent } from "../../headless/reporter.js";
+import { OutputWriter, type OutputRow } from "../../infra/output/writer.js";
+import { formatEvent } from "../../infra/output/reporter.js";
 
 export type FindingStatus = "pending" | "in_progress" | "true_positive" | "false_positive" | "needs_review";
 
