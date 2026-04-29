@@ -10,7 +10,7 @@ import { DoomLoopDetector } from "./doom-loop.js";
 import { createTools } from "./tools/index.js";
 import { resolveProvider } from "../../infra/providers/registry.js";
 import { resolveProviderOptions, type ReasoningEffort } from "../../infra/providers/reasoning.js";
-import { log } from "../../logger.js";
+import { log } from "../../infra/logger.js";
 
 export interface AgentLoopConfig {
   finding: Finding;

@@ -6,8 +6,8 @@ import { resolveConfig, validateConfig } from "./config.js";
 import { MemoryStore } from "./infra/memory/store.js";
 import { ProjectConfig } from "./config/project-config.js";
 import { TriageOrchestrator } from "./core/triage/orchestrator.js";
-import { initLogger, log } from "./logger.js";
-import { initTracing, hasLangSmithConfig } from "./tracing.js";
+import { initLogger, log } from "./infra/logger.js";
+import { initTracing, hasLangSmithConfig } from "./infra/tracing.js";
 
 const program = new Command();
 
