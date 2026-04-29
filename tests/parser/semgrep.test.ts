@@ -5,7 +5,7 @@ import {
   parseSemgrepOutput,
   fingerprintFinding,
   classifyFinding,
-} from "../../src/parser/semgrep.js";
+} from "../../src/core/parser/semgrep.js";
 
 const FIXTURES = resolve(import.meta.dirname, "../fixtures");
 

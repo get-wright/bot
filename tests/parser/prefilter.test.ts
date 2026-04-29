@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { prefilterFinding, type PrefilterResult } from "../../src/parser/prefilter.js";
+import { prefilterFinding, type PrefilterResult } from "../../src/core/parser/prefilter.js";
 import { FindingSchema, type Finding } from "../../src/models/finding.js";
 
 function makeFinding(overrides: Record<string, unknown> = {}): Finding {

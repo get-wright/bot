@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { parseSemgrepOutput, fingerprintFinding, classifyFinding } from "../src/parser/semgrep.js";
-import { prefilterFinding } from "../src/parser/prefilter.js";
+import { parseSemgrepOutput, fingerprintFinding, classifyFinding } from "../src/core/parser/semgrep.js";
+import { prefilterFinding } from "../src/core/parser/prefilter.js";
 
 const FIXTURES = resolve(import.meta.dirname, "fixtures");
 

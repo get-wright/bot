@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { TriageOrchestrator } from "../src/orchestrator.js";
 import { MemoryStore } from "../src/memory/store.js";
-import { fingerprintFinding } from "../src/parser/semgrep.js";
+import { fingerprintFinding } from "../src/core/parser/semgrep.js";
 import type { Finding } from "../src/models/finding.js";
 import type { AppConfig } from "../src/config.js";
 

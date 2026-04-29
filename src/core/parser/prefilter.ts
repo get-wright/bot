@@ -1,4 +1,4 @@
-import type { Finding } from "../models/finding.js";
+import type { Finding } from "../../models/finding.js";
 
 export interface PrefilterResult {
   passed: boolean;
