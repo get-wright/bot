@@ -8,12 +8,7 @@ Unlike traditional SAST triage tools that use fixed heuristics, sast-triage give
 
 ## Table of Contents
 
-- [Quick Start](#quick-start)
-- [Building from Source](#building-from-source)
-- [Usage](#usage)
-  - [Interactive TUI](#interactive-tui)
-  - [Headless Mode](#headless-mode-ciscripts)
-  - [CLI Reference](#cli-reference)
+- [Quickstart (Docker)](#quickstart-docker)
 - [Providers](#providers)
 - [How It Works](#how-it-works)
 - [Configuration](#configuration)
@@ -22,165 +17,34 @@ Unlike traditional SAST triage tools that use fixed heuristics, sast-triage give
 
 ---
 
-## Quick Start
+## Quickstart (Docker)
+
+```bash
+# One-time: log in with a PAT that has read:packages scope
+echo "$GHCR_PAT" | docker login ghcr.io -u <your-github-username> --password-stdin
+
+docker run --rm \
+  -v "$PWD:/work" \
+  -e SAST_API_KEY=sk-... \
+  ghcr.io/get-wright/sast-triage:latest \
+  --provider openai --model gpt-4o
+```
+
+Replace `<your-github-username>` with the GitHub username that owns the PAT. Output is written to `findings-out.json` in the mounted volume.
+
+### Local development
 
 ```bash
 cd sast-triage-ts
-npm install
-bun build src/index.ts --compile --outfile sast-triage
-
-# Run on a repo with Semgrep findings
-cd /path/to/your/repo
-semgrep scan --json -o findings.json
-/path/to/sast-triage
+bun install              # use bun, not npm — bun.lock is the source of truth
+bunx vitest run          # 143 tests
+bunx tsc --noEmit        # type check
+bun run src/index.ts findings.json --provider openai --model gpt-4o
 ```
 
-First launch walks you through setup (provider, API key, model). Config saves to `.sast-triage.toml` — subsequent launches skip straight to triage.
+### TUI
 
----
-
-## Building from Source
-
-### Prerequisites
-
-| Tool | Version | Purpose |
-|------|---------|---------|
-| [Node.js](https://nodejs.org/) | >= 20 | Install dependencies, run tests |
-| [Bun](https://bun.sh/) | >= 1.0 | Compile standalone binary |
-
-### Build
-
-```bash
-cd sast-triage-ts
-
-# Install dependencies
-npm install
-
-# Compile standalone binary (~63 MB, macOS arm64)
-bun build src/index.ts --compile --outfile sast-triage
-```
-
-The binary is self-contained — no Node.js or Bun runtime needed to run it. Copy it anywhere on your `PATH`:
-
-```bash
-cp sast-triage /usr/local/bin/
-```
-
-### Cross-compilation
-
-Bun supports cross-compiling to other targets:
-
-```bash
-# Linux x64
-bun build src/index.ts --compile --target=bun-linux-x64 --outfile sast-triage-linux
-
-# macOS x64
-bun build src/index.ts --compile --target=bun-darwin-x64 --outfile sast-triage-x64
-```
-
----
-
-## Usage
-
-### Interactive TUI
-
-```bash
-sast-triage                       # setup wizard on first run
-sast-triage findings.json         # skip setup if config saved
-sast-triage --effort high         # enable extended reasoning
-sast-triage --no-log              # disable debug logging
-```
-
-Three-panel layout: findings list | agent investigation | stats sidebar.
-
-**Navigation**
-
-| Key | Action |
-|-----|--------|
-| `↑` / `↓` | Move selection in findings list |
-| `Tab` | Cycle views: Active → Filtered → Dismissed |
-| `Space` | Toggle multi-select on current finding |
-| `a` | Select all in current view |
-| `q` | Quit |
-
-**Active view**
-
-| Key | Action |
-|-----|--------|
-| `Enter` | Triage selected finding(s); batches with multi-select |
-| `r` | Re-audit current finding (clears cached verdict) |
-| `f` | Ask a follow-up question about the current verdict |
-| `Esc` | Stop a running batch queue |
-
-**Filtered view**
-
-| Key | Action |
-|-----|--------|
-| `Enter` | Promote selected finding(s) to Active and triage |
-| `d` | Dismiss current finding (moves to Dismissed) |
-
-**Dismissed view**
-
-| Key | Action |
-|-----|--------|
-| `Enter` | Restore selected finding(s) back to Filtered |
-
-**Agent panel scroll** (middle panel, when content exceeds viewport)
-
-| Key | Action |
-|-----|--------|
-| `PgUp` / `PgDn` | Scroll by page |
-| `Shift+↑` / `Shift+↓` | Scroll by page |
-| `Home` / `End` | Jump to top / bottom (End resumes auto-follow) |
-
-The agent panel auto-follows new output during investigation. Scrolling up pauses auto-follow; pressing `End` or scrolling back to the bottom resumes it.
-
-**Other**
-
-| Key | Action |
-|-----|--------|
-| `Ctrl+P` | Switch provider mid-session (re-enters setup) |
-
-### Headless Mode (CI/scripts)
-
-```bash
-sast-triage findings.json \
-  --provider openai --model gpt-4o \
-  --headless
-```
-
-Outputs one NDJSON line per event (tool calls, verdicts). Pipe to `jq` or ingest into dashboards:
-
-```bash
-# Extract just the verdicts
-sast-triage findings.json --provider anthropic --model claude-sonnet-4-20250514 --headless \
-  | jq 'select(.type == "verdict")'
-
-# Count true positives
-sast-triage findings.json --provider openai --model gpt-4o --headless \
-  | jq -s '[.[] | select(.type == "verdict" and .verdict.verdict == "true_positive")] | length'
-```
-
-### CLI Reference
-
-```
-sast-triage [options] [findings]
-
-Arguments:
-  findings                Path to Semgrep JSON output file
-
-Options:
-  -V, --version           Show version number
-  --provider <provider>   LLM provider (openai, anthropic, google, openrouter, fpt)
-  --model <model>         Model ID
-  --headless              Output NDJSON instead of TUI
-  --allow-bash            Enable bash tool for agent
-  --max-steps <n>         Max agent loop steps per finding (default: 15)
-  --memory-db <path>      SQLite memory DB path (default: .sast-triage/memory.db)
-  --effort <level>        Reasoning effort: low, medium, high
-  --no-log                Disable debug logging (enabled by default)
-  -h, --help              Show help
-```
+Archived on the `tui-snapshot` branch — no longer maintained on `main`.
 
 ---
 
@@ -196,7 +60,7 @@ Options:
 
 ### API Keys
 
-Set via environment variable or enter in the TUI setup wizard:
+Set via environment variable or the `--api-key` flag:
 
 | Provider | Environment Variable |
 |----------|---------------------|
@@ -205,8 +69,6 @@ Set via environment variable or enter in the TUI setup wizard:
 | Google AI | `GOOGLE_API_KEY` |
 | OpenRouter | `OPENROUTER_API_KEY` |
 | FPT AI | `FPT_API_KEY` |
-
-Keys entered in the TUI are saved to `.sast-triage.toml` and persist across sessions.
 
 ---
 
@@ -250,7 +112,7 @@ Models that don't support reasoning silently ignore this setting.
 
 ## Configuration
 
-On first run, the TUI saves your choices to `.sast-triage.toml` in the working directory:
+Config is saved to `.sast-triage.toml` in the working directory:
 
 ```toml
 [provider]
@@ -266,7 +128,7 @@ openrouter = "sk-or-..."
 db_path = ".sast-triage/memory.db"
 ```
 
-Subsequent runs auto-load this config. Add `.sast-triage.toml` to your `.gitignore` (it may contain API keys).
+Add `.sast-triage.toml` to your `.gitignore` (it may contain API keys).
 
 ---
 
@@ -274,19 +136,16 @@ Subsequent runs auto-load this config. Add `.sast-triage.toml` to your `.gitigno
 
 ```bash
 cd sast-triage-ts
-npm install
+bun install
 
-# Run tests (115 tests, ~0.7s, no network)
-npx vitest run
+# Run tests (143 tests, ~0.7s, no network)
+bunx vitest run
 
 # Type check
-npx tsc --noEmit
+bunx tsc --noEmit
 
-# Run in dev mode (without compiling)
-npx tsx src/index.ts
-
-# Compile binary
-bun build src/index.ts --compile --outfile sast-triage
+# Run in dev mode
+bun run src/index.ts findings.json --provider openai --model gpt-4o
 ```
 
 ### Project Structure
@@ -311,13 +170,9 @@ sast-triage-ts/
 │   ├── parser/
 │   │   ├── semgrep.ts        # Parse + fingerprint
 │   │   └── prefilter.ts      # Test/generated/INFO filter
-│   ├── provider/
-│   │   ├── registry.ts       # Multi-provider resolution
-│   │   └── reasoning.ts      # Reasoning effort mapping
-│   ├── ui/
-│   │   ├── app.tsx           # Main TUI (Ink)
-│   │   └── components/       # SetupScreen, FindingsTable, AgentPanel, Sidebar
-│   └── logger.ts             # File-based debug logger
+│   └── provider/
+│       ├── registry.ts       # Multi-provider resolution
+│       └── reasoning.ts      # Reasoning effort mapping
 └── tests/                    # Vitest, mirrors src/ structure
 ```
 
@@ -327,8 +182,6 @@ sast-triage-ts/
 
 - **TypeScript** + **Zod** — models and validation
 - **AI SDK v5** — multi-provider LLM interaction with `streamText` agentic loop
-- **Ink 6** + **React 19** — terminal UI
-- **fullscreen-ink** — alternate screen buffer with responsive resize
 - **better-sqlite3** / **bun:sqlite** — verdict caching (runtime detection)
 - **Commander** — CLI parsing
 - **smol-toml** — config persistence
