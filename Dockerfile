@@ -4,11 +4,11 @@
 FROM oven/bun:1-debian AS build
 WORKDIR /src
 ARG TARGETARCH
-COPY sast-triage-ts/package.json sast-triage-ts/bun.lock ./
+COPY package.json bun.lock ./
 # --ignore-scripts skips better-sqlite3's node-gyp build; at runtime the
 # compiled binary uses bun:sqlite (built into the Bun runtime), not better-sqlite3.
 RUN bun install --frozen-lockfile --ignore-scripts
-COPY sast-triage-ts/ ./
+COPY . ./
 # CPU variant: bun-linux-x64-baseline for max amd64 portability (pre-Haswell);
 # arm64 has only one variant.
 RUN case "$TARGETARCH" in \

@@ -35,7 +35,6 @@ Replace `<your-github-username>` with the GitHub username that owns the PAT. Out
 ### Local development
 
 ```bash
-cd sast-triage-ts
 bun install              # use bun, not npm — bun.lock is the source of truth
 bunx vitest run          # 143 tests
 bunx tsc --noEmit        # type check
@@ -135,7 +134,6 @@ Add `.sast-triage.toml` to your `.gitignore` (it may contain API keys).
 ## Development
 
 ```bash
-cd sast-triage-ts
 bun install
 
 # Run tests (143 tests, ~0.7s, no network)
@@ -151,29 +149,40 @@ bun run src/index.ts findings.json --provider openai --model gpt-4o
 ### Project Structure
 
 ```
-sast-triage-ts/
+.
 ├── src/
-│   ├── index.ts              # CLI entry (commander)
-│   ├── agent/
-│   │   ├── loop.ts           # Agent loop (streamText + tools)
-│   │   ├── follow-up.ts      # Conversational follow-up on verdicts
-│   │   ├── system-prompt.ts  # System prompt + finding formatter
-│   │   └── tools/            # read, grep, glob, bash, verdict
-│   ├── config/
+│   ├── index.ts              # entry shim
+│   ├── cli/
+│   │   ├── cli.ts            # commander setup, action handler
+│   │   ├── config.ts         # resolveConfig + validateConfig
 │   │   └── project-config.ts # .sast-triage.toml persistence
-│   ├── memory/
-│   │   └── store.ts          # SQLite verdict cache
-│   ├── models/
-│   │   ├── finding.ts        # Finding schema (Zod)
-│   │   ├── verdict.ts        # Verdict schema (Zod)
-│   │   └── events.ts         # Agent event types
-│   ├── parser/
-│   │   ├── semgrep.ts        # Parse + fingerprint
-│   │   └── prefilter.ts      # Test/generated/INFO filter
-│   └── provider/
-│       ├── registry.ts       # Multi-provider resolution
-│       └── reasoning.ts      # Reasoning effort mapping
-└── tests/                    # Vitest, mirrors src/ structure
+│   ├── core/
+│   │   ├── agent/
+│   │   │   ├── loop.ts       # agent loop (streamText + tools)
+│   │   │   ├── follow-up.ts  # conversational follow-up
+│   │   │   ├── system-prompt.ts
+│   │   │   └── tools/        # read, grep, glob, bash, verdict
+│   │   ├── parser/
+│   │   │   ├── semgrep.ts    # parse + fingerprint
+│   │   │   └── prefilter.ts  # test/generated/INFO filter
+│   │   ├── models/
+│   │   │   ├── finding.ts    # Finding schema (Zod)
+│   │   │   ├── verdict.ts    # Verdict schema (Zod)
+│   │   │   └── events.ts     # agent event types
+│   │   └── triage/
+│   │       └── orchestrator.ts  # headless run flow
+│   └── infra/
+│       ├── providers/
+│       │   ├── registry.ts   # multi-provider resolution
+│       │   └── reasoning.ts  # reasoning effort mapping
+│       ├── memory/
+│       │   └── store.ts      # SQLite verdict cache
+│       ├── output/
+│       │   ├── writer.ts     # NDJSON + findings-out.json
+│       │   └── reporter.ts   # stderr event formatter
+│       ├── tracing.ts        # LangSmith init
+│       └── logger.ts         # file-based debug logger
+└── tests/                    # vitest, mirrors src/
 ```
 
 ---

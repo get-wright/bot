@@ -25,7 +25,6 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y ripgrep
 
       - name: Install + typecheck + test
-        working-directory: sast-triage-ts
         run: |
           bun install --frozen-lockfile
           bunx tsc --noEmit

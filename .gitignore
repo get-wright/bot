@@ -2,10 +2,12 @@
 node_modules/
 
 # Build artifacts
-sast-triage-ts/sast-triage
+sast-triage
+dist/
 
 # Test temp files
-sast-triage-ts/tests/config/.tmp/
+tests/config/.tmp/
+tests/cli/.tmp/
 
 # Python
 sast_triage.egg-info/
@@ -15,7 +17,6 @@ __pycache__/
 
 # SAST triage runtime
 .sast-triage/
-sast-triage-ts/.sast-triage/
 
 # Docs (specs, plans)
 docs/
