@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
-import type { ProjectConfig } from "./config/project-config.js";
-import type { ProviderName } from "./infra/providers/registry.js";
-import type { ReasoningEffort } from "./infra/providers/reasoning.js";
+import type { ProjectConfig } from "./project-config.js";
+import type { ProviderName } from "../infra/providers/registry.js";
+import type { ReasoningEffort } from "../infra/providers/reasoning.js";
 
 // Per-provider env var names (mirror src/config/project-config.ts ENV_KEYS).
 const PROVIDER_ENV_KEYS: Record<ProviderName, string> = {

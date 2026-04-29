@@ -4,7 +4,7 @@ import type { Finding } from "../models/finding.js";
 import type { TriageVerdict } from "../models/verdict.js";
 import type { AgentEvent } from "../models/events.js";
 import type { MemoryStore, CachedRecord } from "../../infra/memory/store.js";
-import type { AppConfig } from "../../config.js";
+import type { AppConfig } from "../../cli/config.js";
 import type { AgentLoopResult } from "../agent/loop.js";
 import type { FollowUpExchange } from "../agent/follow-up.js";
 import { parseSemgrepOutput, fingerprintFinding } from "../parser/semgrep.js";

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { ProjectConfig } from "../../src/config/project-config.js";
+import { ProjectConfig } from "../../src/cli/project-config.js";
 
 describe("ProjectConfig", () => {
   let workspace: string;

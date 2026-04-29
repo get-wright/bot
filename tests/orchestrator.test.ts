@@ -6,7 +6,7 @@ import { TriageOrchestrator } from "../src/core/triage/orchestrator.js";
 import { MemoryStore } from "../src/infra/memory/store.js";
 import { fingerprintFinding } from "../src/core/parser/semgrep.js";
 import type { Finding } from "../src/core/models/finding.js";
-import type { AppConfig } from "../src/config.js";
+import type { AppConfig } from "../src/cli/config.js";
 
 function makeMinimalFinding(): Finding {
   return {
