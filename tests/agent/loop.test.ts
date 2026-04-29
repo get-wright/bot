@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { AgentLoopConfig } from "../../src/core/agent/loop.js";
-import type { AgentEvent } from "../../src/models/events.js";
-import { FindingSchema } from "../../src/models/finding.js";
+import type { AgentEvent } from "../../src/core/models/events.js";
+import { FindingSchema } from "../../src/core/models/finding.js";
 
 const TEST_FINDING = FindingSchema.parse({
   check_id: "test.rule",

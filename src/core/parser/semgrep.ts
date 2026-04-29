@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { FindingSchema, SemgrepOutputSchema, type Finding } from "../../models/finding.js";
+import { FindingSchema, SemgrepOutputSchema, type Finding } from "../models/finding.js";
 
 export function parseSemgrepOutput(raw: unknown): Finding[] {
   if (typeof raw === "string") {

@@ -1,10 +1,10 @@
 import { streamText, stepCountIs, generateObject } from "ai";
 import { z } from "zod";
-import { VerdictValue } from "../../models/verdict.js";
-import type { Finding } from "../../models/finding.js";
-import type { TriageVerdict } from "../../models/verdict.js";
-import type { AgentEvent } from "../../models/events.js";
-import { TriageVerdictSchema } from "../../models/verdict.js";
+import { VerdictValue } from "../models/verdict.js";
+import type { Finding } from "../models/finding.js";
+import type { TriageVerdict } from "../models/verdict.js";
+import type { AgentEvent } from "../models/events.js";
+import { TriageVerdictSchema } from "../models/verdict.js";
 import { SYSTEM_PROMPT, formatFindingMessage } from "./system-prompt.js";
 import { DoomLoopDetector } from "./doom-loop.js";
 import { createTools } from "./tools/index.js";

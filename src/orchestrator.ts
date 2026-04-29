@@ -1,8 +1,8 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import type { Finding } from "./models/finding.js";
-import type { TriageVerdict } from "./models/verdict.js";
-import type { AgentEvent } from "./models/events.js";
+import type { Finding } from "./core/models/finding.js";
+import type { TriageVerdict } from "./core/models/verdict.js";
+import type { AgentEvent } from "./core/models/events.js";
 import type { MemoryStore, CachedRecord } from "./memory/store.js";
 import type { AppConfig } from "./config.js";
 import type { AgentLoopResult } from "./core/agent/loop.js";

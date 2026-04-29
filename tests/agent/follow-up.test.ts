@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { buildFollowUpMessages } from "../../src/core/agent/follow-up.js";
-import { FindingSchema } from "../../src/models/finding.js";
-import type { TriageVerdict } from "../../src/models/verdict.js";
+import { FindingSchema } from "../../src/core/models/finding.js";
+import type { TriageVerdict } from "../../src/core/models/verdict.js";
 
 const TEST_FINDING = FindingSchema.parse({
   check_id: "test.rule",

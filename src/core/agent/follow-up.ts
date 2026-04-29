@@ -1,7 +1,7 @@
 import { streamText } from "ai";
-import type { Finding } from "../../models/finding.js";
-import type { TriageVerdict } from "../../models/verdict.js";
-import type { AgentEvent } from "../../models/events.js";
+import type { Finding } from "../models/finding.js";
+import type { TriageVerdict } from "../models/verdict.js";
+import type { AgentEvent } from "../models/events.js";
 import { formatFindingMessage } from "./system-prompt.js";
 import { resolveProvider } from "../../provider/registry.js";
 import { resolveProviderOptions, type ReasoningEffort } from "../../provider/reasoning.js";

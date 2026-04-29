@@ -1,7 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import { VerdictValue } from "../models/verdict.js";
-import type { TriageVerdict } from "../models/verdict.js";
+import { VerdictValue } from "../core/models/verdict.js";
+import type { TriageVerdict } from "../core/models/verdict.js";
 
 export interface StoredToolCall {
   tool: string;

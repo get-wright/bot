@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { formatEvent } from "../../src/headless/reporter.js";
-import type { AgentEvent } from "../../src/models/events.js";
+import type { AgentEvent } from "../../src/core/models/events.js";
 
 describe("formatEvent", () => {
   it("formats tool_start as NDJSON", () => {

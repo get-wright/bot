@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { TriageVerdictSchema, type TriageVerdict } from "../../src/models/verdict.js";
+import { TriageVerdictSchema, type TriageVerdict } from "../../src/core/models/verdict.js";
 
 describe("TriageVerdictSchema", () => {
   it("parses a valid true_positive verdict", () => {
