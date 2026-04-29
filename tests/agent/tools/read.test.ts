@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createReadTool } from "../../../src/agent/tools/read.js";
+import { createReadTool } from "../../../src/core/agent/tools/read.js";
 
 function makeTempDir(): string {
   return mkdtempSync(join(tmpdir(), "sast-triage-read-"));

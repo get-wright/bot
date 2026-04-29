@@ -1,4 +1,4 @@
-import type { Finding } from "../models/finding.js";
+import type { Finding } from "../../models/finding.js";
 
 export const SYSTEM_PROMPT = `You are an expert application security engineer investigating SAST (Static Analysis) findings.
 

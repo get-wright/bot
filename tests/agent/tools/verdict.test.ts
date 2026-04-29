@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createVerdictTool } from "../../../src/agent/tools/verdict.js";
+import { createVerdictTool } from "../../../src/core/agent/tools/verdict.js";
 
 describe("createVerdictTool", () => {
   it("returns a parsed TriageVerdict for valid input", async () => {

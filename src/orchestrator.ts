@@ -5,12 +5,12 @@ import type { TriageVerdict } from "./models/verdict.js";
 import type { AgentEvent } from "./models/events.js";
 import type { MemoryStore, CachedRecord } from "./memory/store.js";
 import type { AppConfig } from "./config.js";
-import type { AgentLoopResult } from "./agent/loop.js";
-import type { FollowUpExchange } from "./agent/follow-up.js";
+import type { AgentLoopResult } from "./core/agent/loop.js";
+import type { FollowUpExchange } from "./core/agent/follow-up.js";
 import { parseSemgrepOutput, fingerprintFinding } from "./parser/semgrep.js";
 import { prefilterFinding } from "./parser/prefilter.js";
-import { runAgentLoop } from "./agent/loop.js";
-import { runFollowUp } from "./agent/follow-up.js";
+import { runAgentLoop } from "./core/agent/loop.js";
+import { runFollowUp } from "./core/agent/follow-up.js";
 import { OutputWriter, type OutputRow } from "./headless/output.js";
 import { formatEvent } from "./headless/reporter.js";
 

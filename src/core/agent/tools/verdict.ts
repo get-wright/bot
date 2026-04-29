@@ -1,4 +1,4 @@
-import { TriageVerdictSchema, type TriageVerdict } from "../../models/verdict.js";
+import { TriageVerdictSchema, type TriageVerdict } from "../../../models/verdict.js";
 
 export interface VerdictToolInput {
   verdict: TriageVerdict["verdict"];

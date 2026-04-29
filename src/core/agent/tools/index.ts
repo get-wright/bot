@@ -4,7 +4,7 @@ import { createReadTool } from "./read.js";
 import { createGrepTool } from "./grep.js";
 import { createGlobTool } from "./glob.js";
 import { createBashTool } from "./bash.js";
-import { TriageVerdictSchema } from "../../models/verdict.js";
+import { TriageVerdictSchema } from "../../../models/verdict.js";
 
 export interface ToolConfig {
   projectRoot: string;

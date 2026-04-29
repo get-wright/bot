@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildFollowUpMessages } from "../../src/agent/follow-up.js";
+import { buildFollowUpMessages } from "../../src/core/agent/follow-up.js";
 import { FindingSchema } from "../../src/models/finding.js";
 import type { TriageVerdict } from "../../src/models/verdict.js";
 

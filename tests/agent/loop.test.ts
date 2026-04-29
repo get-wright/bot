@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { AgentLoopConfig } from "../../src/agent/loop.js";
+import type { AgentLoopConfig } from "../../src/core/agent/loop.js";
 import type { AgentEvent } from "../../src/models/events.js";
 import { FindingSchema } from "../../src/models/finding.js";
 
@@ -19,7 +19,7 @@ const TEST_FINDING = FindingSchema.parse({
 
 describe("runAgentLoop", () => {
   it("exports runAgentLoop function", async () => {
-    const { runAgentLoop } = await import("../../src/agent/loop.js");
+    const { runAgentLoop } = await import("../../src/core/agent/loop.js");
     expect(typeof runAgentLoop).toBe("function");
   });
 

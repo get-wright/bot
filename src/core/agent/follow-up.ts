@@ -1,10 +1,10 @@
 import { streamText } from "ai";
-import type { Finding } from "../models/finding.js";
-import type { TriageVerdict } from "../models/verdict.js";
-import type { AgentEvent } from "../models/events.js";
+import type { Finding } from "../../models/finding.js";
+import type { TriageVerdict } from "../../models/verdict.js";
+import type { AgentEvent } from "../../models/events.js";
 import { formatFindingMessage } from "./system-prompt.js";
-import { resolveProvider } from "../provider/registry.js";
-import { resolveProviderOptions, type ReasoningEffort } from "../provider/reasoning.js";
+import { resolveProvider } from "../../provider/registry.js";
+import { resolveProviderOptions, type ReasoningEffort } from "../../provider/reasoning.js";
 
 const FOLLOWUP_SYSTEM = `You are an expert application security engineer in a follow-up discussion about a SAST finding you previously triaged. Answer the user's question based on the finding context and your previous analysis. Be specific, cite line numbers and code when relevant. Do not output JSON — this is a conversation.`;
 
