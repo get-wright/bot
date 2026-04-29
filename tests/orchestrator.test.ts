@@ -3,7 +3,7 @@ import { resolve, join } from "node:path";
 import { mkdtempSync, rmSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { TriageOrchestrator } from "../src/core/triage/orchestrator.js";
-import { MemoryStore } from "../src/memory/store.js";
+import { MemoryStore } from "../src/infra/memory/store.js";
 import { fingerprintFinding } from "../src/core/parser/semgrep.js";
 import type { Finding } from "../src/core/models/finding.js";
 import type { AppConfig } from "../src/config.js";

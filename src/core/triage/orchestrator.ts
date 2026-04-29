@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import type { Finding } from "../models/finding.js";
 import type { TriageVerdict } from "../models/verdict.js";
 import type { AgentEvent } from "../models/events.js";
-import type { MemoryStore, CachedRecord } from "../../memory/store.js";
+import type { MemoryStore, CachedRecord } from "../../infra/memory/store.js";
 import type { AppConfig } from "../../config.js";
 import type { AgentLoopResult } from "../agent/loop.js";
 import type { FollowUpExchange } from "../agent/follow-up.js";
