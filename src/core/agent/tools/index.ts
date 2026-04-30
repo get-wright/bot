@@ -12,7 +12,7 @@ export interface ToolConfig {
 }
 
 export function createTools(config: ToolConfig): ToolSet {
-  const readImpl = createReadTool(config.projectRoot);
+  const readImpl = createReadTool({ projectRoot: config.projectRoot });
   const grepImpl = createGrepTool(config.projectRoot);
   const globImpl = createGlobTool(config.projectRoot);
 

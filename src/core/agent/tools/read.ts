@@ -5,6 +5,28 @@ const MAX_BYTES = 50 * 1024;
 const DEFAULT_LIMIT = 2000;
 const MAX_LINE_CHARS = 2000;
 
+export interface ServedRange {
+  start: number;  // 1-indexed inclusive
+  end: number;    // 1-indexed inclusive
+}
+
+export interface ReadEntry {
+  hash: string;          // first 12 hex chars of SHA-256(buffer)
+  step: number;          // step at which it was first served
+  mtimeMs: number;       // file mtime at read time
+  totalLines: number;    // total file lines (for stub message)
+  byteCappedTruncated: boolean;  // 50KB byte cap hit on first read — disables dedup
+  servedRanges: ServedRange[];   // line ranges already shown to the agent
+}
+
+export type ReadRegistry = Map<string, ReadEntry>;
+
+export interface CreateReadToolOptions {
+  projectRoot: string;
+  registry?: ReadRegistry;
+  getStep?: () => number;
+}
+
 export interface ReadToolInput {
   path: string;
   offset?: number;
@@ -15,8 +37,11 @@ export interface ReadTool {
   execute(input: ReadToolInput): Promise<string>;
 }
 
-export function createReadTool(projectRoot: string): ReadTool {
-  const root = resolve(projectRoot);
+export function createReadTool(opts: CreateReadToolOptions): ReadTool {
+  const root = resolve(opts.projectRoot);
+  const registry = opts.registry;
+  const getStep = opts.getStep ?? (() => 0);
+  void registry; void getStep;
 
   return {
     async execute({ path, offset = 1, limit = DEFAULT_LIMIT }: ReadToolInput): Promise<string> {
