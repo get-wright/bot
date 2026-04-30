@@ -85,7 +85,10 @@ is correct.
 - If you cannot determine the verdict after reasonable investigation, use needs_review.
 - Call the verdict tool when ready. Do not keep exploring after you have enough evidence.`;
 
-export function formatFindingMessage(finding: Finding, opts?: { graphAvailable?: boolean }): string {
+export function formatFindingMessage(
+  finding: Finding,
+  opts?: { graphAvailable?: boolean; graphContext?: string | null },
+): string {
   const sections: string[] = [];
 
   const cweList = finding.extra.metadata.cwe;
@@ -123,6 +126,17 @@ ${finding.extra.lines}
     if (traceParts.length > 0) {
       sections.push(`## Dataflow Trace\n${traceParts.join("\n")}`);
     }
+  }
+
+  if (opts?.graphContext) {
+    sections.push(`## Code context (pre-computed)
+The following structural context was computed from the project's code knowledge graph
+*before* you started. Use it to skip generic file exploration — go straight to reads of
+the specific symbols or callers/callees you need to understand the data flow.
+
+\`\`\`
+${opts.graphContext}
+\`\`\``);
   }
 
   if (opts?.graphAvailable) {

@@ -27,6 +27,7 @@ export interface AgentLoopConfig {
   baseUrl?: string;
   reasoningEffort?: ReasoningEffort;
   graphClient?: GraphClient | null;
+  graphContext?: string | null;
 }
 
 export interface AgentLoopResult {
@@ -166,7 +167,10 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
     systemPromptParts.push(`## Historical Context\n${memoryHints.map((h) => `- ${h}`).join("\n")}`);
   }
 
-  const userMessage = formatFindingMessage(finding, { graphAvailable: !!config.graphClient });
+  const userMessage = formatFindingMessage(finding, {
+    graphAvailable: !!config.graphClient,
+    graphContext: config.graphContext ?? null,
+  });
 
   const providerOptions = config.reasoningEffort
     ? (resolveProviderOptions(config.provider, config.reasoningEffort) as Parameters<typeof streamText>[0]["providerOptions"])
