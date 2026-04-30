@@ -36,9 +36,15 @@ describe("createReadTool path existence gate", () => {
     writeFileSync(join(root, "src/server.js"), "// real");
 
     const tool = createReadTool({ projectRoot: root });
-    await expect(tool.execute({ path: "missing/server.js" })).rejects.toThrow(
-      /did you mean: src\/server\.js/
-    );
+    let thrown: Error | undefined;
+    try {
+      await tool.execute({ path: "missing/server.js" });
+    } catch (err) {
+      thrown = err as Error;
+    }
+    expect(thrown).toBeDefined();
+    expect(thrown!.message).toMatch(/did you mean: src\/server\.js/);
+    expect(thrown!.message).not.toMatch(/node_modules/);
   });
 
   it("returns at most 5 suggestions, sorted by path length", async () => {

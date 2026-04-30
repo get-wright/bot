@@ -64,6 +64,43 @@ describe("createGraphClient", () => {
     await client!.close();
   });
 
+  it("parses the 'results' envelope shape (current upstream)", async () => {
+    const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
+    (Client as unknown as { mockImplementation: (fn: () => unknown) => void })
+      .mockImplementation(() => ({
+        connect: vi.fn().mockResolvedValue(undefined),
+        callTool: vi.fn().mockResolvedValue({
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              status: "ok",
+              results: [{
+                name: "evalUserInput",
+                qualified_name: "/tmp/server.js::evalUserInput",
+                kind: "Function",
+                file_path: "/tmp/server.js",
+                line_start: 1,
+                line_end: 3,
+                params: "(s)",
+                return_type: null,
+              }],
+            }),
+          }],
+        }),
+        close: vi.fn().mockResolvedValue(undefined),
+      }));
+
+    const client = await createGraphClient({
+      repoRoot: "/tmp",
+      binaryPath: "/x/code-review-graph",
+      skipExistsCheck: true,
+    });
+    const out = await client!.searchSymbol({ query: "evalUserInput" });
+    expect(out).toHaveLength(1);
+    expect(out[0].name).toBe("evalUserInput");
+    expect(out[0].return_type).toBeUndefined();
+  });
+
   it("returns empty array when MCP returns no nodes", async () => {
     const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
     (Client as unknown as { mockImplementation: (fn: () => unknown) => void })
