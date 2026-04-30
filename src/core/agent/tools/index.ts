@@ -6,12 +6,15 @@ import { createGrepTool } from "./grep.js";
 import { createGlobTool } from "./glob.js";
 import { createBashTool } from "./bash.js";
 import { TriageVerdictSchema } from "../../models/verdict.js";
+import type { GraphClient } from "../../../infra/graph/index.js";
+import { createQueryGraphTool, createSearchSymbolTool } from "./query-graph.js";
 
 export interface ToolConfig {
   projectRoot: string;
   allowBash: boolean;
   readRegistry?: ReadRegistry;
   getStep?: () => number;
+  graphClient?: GraphClient | null;
 }
 
 export function createTools(config: ToolConfig): ToolSet {
@@ -72,6 +75,11 @@ export function createTools(config: ToolConfig): ToolSet {
       }),
       execute: async (args) => bashImpl.execute(args),
     });
+  }
+
+  if (config.graphClient) {
+    (tools as Record<string, unknown>).query_graph = createQueryGraphTool(config.graphClient);
+    (tools as Record<string, unknown>).search_symbol = createSearchSymbolTool(config.graphClient);
   }
 
   return tools;
