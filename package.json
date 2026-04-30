@@ -13,22 +13,22 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@ai-sdk/anthropic": "^2.0.77",
-    "@ai-sdk/google": "^2.0.70",
-    "@ai-sdk/openai": "^2.0.103",
+    "@ai-sdk/anthropic": "^2.0.78",
+    "@ai-sdk/google": "^2.0.71",
+    "@ai-sdk/openai": "^2.0.104",
     "@modelcontextprotocol/sdk": "^1",
-    "ai": "^5.0.179",
-    "better-sqlite3": "^11.0.0",
-    "commander": "^13.0.0",
+    "ai": "^5.0.180",
+    "better-sqlite3": "^12",
+    "commander": "^14",
     "langsmith": "^0.5.26",
     "smol-toml": "^1.6.1",
     "zod": "^3.24.0"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "^7.6.0",
-    "@types/node": "^22.19.17",
-    "tsx": "^4.19.0",
-    "typescript": "^5.7.0",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^24",
+    "tsx": "^4.21",
+    "typescript": "^5.9",
     "vitest": "^3.0.0"
   }
 }
