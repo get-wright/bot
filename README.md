@@ -185,6 +185,23 @@ bun run src/index.ts findings.json --provider openai --model gpt-4o
 └── tests/                    # vitest, mirrors src/
 ```
 
+### Optional: code-review-graph integration
+
+For agents that should investigate via a code knowledge graph (callers, callees, file summaries) instead of grep, install the side-car:
+
+```bash
+pipx install code-review-graph
+code-review-graph --version
+```
+
+Then run sast-triage with `SAST_USE_GRAPH=1`:
+
+```bash
+SAST_USE_GRAPH=1 bun run src/index.ts findings.json --provider openai --model gpt-4o
+```
+
+The graph is built lazily on first invocation per target repo (~10s for 500 files; cached at `<repo>/.code-review-graph/`). Subsequent runs use incremental updates. If the binary isn't on PATH or the build fails, the agent falls back to grep/read transparently.
+
 ---
 
 ## Tech Stack

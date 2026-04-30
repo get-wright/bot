@@ -69,6 +69,11 @@ is correct.
 - Custom sanitization function whose effectiveness is unclear from code alone
 - Complex data flow spanning multiple services or async boundaries
 
+## Investigation discipline
+- Use offset and limit on read whenever the file is longer than 100 lines. The footer shows total line count — use it.
+- If you are not certain a path exists, run glob('**/<basename>') once before read. The harness will reject duplicate or nonexistent reads with structured hints.
+- Do not call read on the same path twice in one investigation. The harness deduplicates and returns a stub. To see a different range, pass new offset / limit.
+
 ## Rules
 - Be thorough but efficient. Read what you need, not entire files.
 - Stay focused on the finding. Only read files directly relevant to the vulnerability's data flow.
@@ -80,7 +85,7 @@ is correct.
 - If you cannot determine the verdict after reasonable investigation, use needs_review.
 - Call the verdict tool when ready. Do not keep exploring after you have enough evidence.`;
 
-export function formatFindingMessage(finding: Finding): string {
+export function formatFindingMessage(finding: Finding, opts?: { graphAvailable?: boolean }): string {
   const sections: string[] = [];
 
   const cweList = finding.extra.metadata.cwe;
@@ -118,6 +123,15 @@ ${finding.extra.lines}
     if (traceParts.length > 0) {
       sections.push(`## Dataflow Trace\n${traceParts.join("\n")}`);
     }
+  }
+
+  if (opts?.graphAvailable) {
+    sections.push(
+      "## Tools available\n" +
+      "Code knowledge graph is indexed. Prefer query_graph (callers_of/callees_of/imports_of/file_summary) " +
+      "and search_symbol over grep when looking for definitions or call sites — they return exact line " +
+      "ranges so you can read just the relevant function.",
+    );
   }
 
   sections.push(`## Your Task

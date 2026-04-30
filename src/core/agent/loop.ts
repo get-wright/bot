@@ -8,9 +8,11 @@ import { TriageVerdictSchema } from "../models/verdict.js";
 import { SYSTEM_PROMPT, formatFindingMessage } from "./system-prompt.js";
 import { DoomLoopDetector } from "./doom-loop.js";
 import { createTools } from "./tools/index.js";
+import type { ReadRegistry } from "./tools/read.js";
 import { resolveProvider } from "../../infra/providers/registry.js";
 import { resolveProviderOptions, type ReasoningEffort } from "../../infra/providers/reasoning.js";
 import { log } from "../../infra/logger.js";
+import type { GraphClient } from "../../infra/graph/index.js";
 
 export interface AgentLoopConfig {
   finding: Finding;
@@ -24,6 +26,7 @@ export interface AgentLoopConfig {
   apiKey?: string;
   baseUrl?: string;
   reasoningEffort?: ReasoningEffort;
+  graphClient?: GraphClient | null;
 }
 
 export interface AgentLoopResult {
@@ -133,7 +136,15 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
 
   const languageModel = resolveProvider(provider, modelId, config.apiKey, config.baseUrl);
 
-  const tools = createTools({ projectRoot, allowBash });
+  const readRegistry: ReadRegistry = new Map();
+  let currentStep = 0;
+  const tools = createTools({
+    projectRoot,
+    allowBash,
+    readRegistry,
+    getStep: () => currentStep,
+    graphClient: config.graphClient,
+  });
   const doomLoop = new DoomLoopDetector();
   let finalVerdict: TriageVerdict | null = null;
   // Capture the real API error from onError callback — streamText swallows
@@ -155,7 +166,7 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
     systemPromptParts.push(`## Historical Context\n${memoryHints.map((h) => `- ${h}`).join("\n")}`);
   }
 
-  const userMessage = formatFindingMessage(finding);
+  const userMessage = formatFindingMessage(finding, { graphAvailable: !!config.graphClient });
 
   const providerOptions = config.reasoningEffort
     ? (resolveProviderOptions(config.provider, config.reasoningEffort) as Parameters<typeof streamText>[0]["providerOptions"])
@@ -182,6 +193,7 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
       });
     },
     async prepareStep({ stepNumber }) {
+      currentStep = stepNumber;
       log.debug("agent", `Step ${stepNumber + 1}/${maxSteps}${finalVerdict ? " (verdict already delivered)" : ""}`);
       // Skip overrides if verdict already delivered — no need to waste steps
       if (finalVerdict) return;
@@ -308,6 +320,7 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
       maxRetries: 3,
       stopWhen: stepCountIs(maxSteps),
       async prepareStep({ stepNumber }) {
+        currentStep = stepNumber;
         if (finalVerdict) return;
         if (stepNumber === maxSteps - 2) {
           return {

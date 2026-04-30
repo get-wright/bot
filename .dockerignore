@@ -11,3 +11,4 @@ tests/
 .github/
 .claude/
 .superpowers/
+.code-review-graph/

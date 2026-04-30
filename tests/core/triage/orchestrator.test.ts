@@ -128,8 +128,13 @@ describe("TriageOrchestrator", () => {
       };
 
       const results: any[] = [];
-      await orchestrator.triageBatch(items, config, 3, (fingerprint, result) => {
-        results.push({ fingerprint, result });
+      await orchestrator.triageBatch({
+        items,
+        config,
+        concurrency: 3,
+        onResult: (fingerprint, result) => {
+          results.push({ fingerprint, result });
+        },
       });
 
       expect(orchestrator.triage).toHaveBeenCalledTimes(6);
@@ -175,7 +180,13 @@ describe("TriageOrchestrator", () => {
       const abortController = new AbortController();
       setTimeout(() => abortController.abort(), 50);
 
-      await orchestrator.triageBatch(items, config, 2, () => {}, abortController.signal);
+      await orchestrator.triageBatch({
+        items,
+        config,
+        concurrency: 2,
+        onResult: () => {},
+        abortSignal: abortController.signal,
+      });
       expect(callCount).toBeLessThan(6);
     });
   });
@@ -207,14 +218,13 @@ describe("TriageOrchestrator.triageBatch — error rows", () => {
     };
 
     const results: Array<{ fp: string; result: unknown }> = [];
-    await orch.triageBatch(
+    await orch.triageBatch({
       items,
       config,
-      1,
-      (fp, result) => { results.push({ fp, result }); },
-      undefined,
-      () => {},
-    );
+      concurrency: 1,
+      onResult: (fp, result) => { results.push({ fp, result }); },
+      onEvent: () => {},
+    });
 
     expect(results).toHaveLength(1);
     expect(results[0]!.fp).toBe("fp1");
