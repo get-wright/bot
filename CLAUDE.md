@@ -86,6 +86,13 @@ Unified reasoning effort control via `resolveProviderOptions(provider, effort)` 
 - **Long-line truncation in read** — lines >2000 chars clipped with `… [line truncated, N chars total]` (minified JS, SVG data URIs, base64)
 - **Per-provider key persistence** — `savedApiKeys` on ProjectConfig stores all provider keys; `detectedProviders()` checks env vars OR saved keys
 - **Cached findings include tool calls + tokens + timestamp** — `lookupCached()` returns `{verdict, tool_calls, input_tokens, output_tokens, updated_at}`.
+- **Read registry dedups by content hash + range coverage** — `runAgentLoop` allocates a per-call `ReadRegistry`; the read tool stubs subsequent reads of the same file when the requested `[offset, offset+limit]` range is already covered. Critical: the gate uses raw `input.offset` / `input.limit` (not destructure defaults), so a partial read does NOT block a later full-file read. See `src/core/agent/tools/read.ts`.
+- **Read tool path-not-found suggestions** — when a path doesn't exist, the read tool calls `rg --files --glob '**/<basename>'` (5s timeout, ignores `node_modules`/`.git`/`dist`/`__pycache__`/`venv`/`build`) and appends up to 5 closest matches. If `rg` is missing or times out, degrades to plain "File not found".
+- **Graph integration is gated** — `code-review-graph` MCP only attaches when `SAST_USE_GRAPH=1` env var is set AND the `code-review-graph` binary is on PATH. Otherwise `graphClient` is `null` and `query_graph` / `search_symbol` tools are NOT registered.
+- **Graph build is idempotent** — first run takes ~10s for a 500-file repo; subsequent runs use incremental updates (<2s). 24h staleness threshold; check at `<repo>/.code-review-graph/graph.db`. See `isGraphStale` in `src/infra/graph/index.ts`.
+- **Graph build failures don't block triage** — if `code-review-graph build` errors, `graphClient` is set to `null` and the agent runs without graph tools. Failure surfaces as a single stderr line `[graph] build failed: ...`.
+- **Graph MCP envelope is `results`, not `nodes`** — upstream `code-review-graph` returns query results under `{results: [...]}`. The client also accepts `{nodes: [...]}` for forward-compat. `semantic_search_nodes_tool` parameter is `limit`, not `top_k`.
+- **Graph subprocess is closed in `try/finally`** — `TriageOrchestrator.run` opens the MCP client once, runs the entire batch, and closes in `finally` so even errors reap the child process. Per-call clients are NOT supported.
 
 ## Where to Look
 
@@ -103,3 +110,7 @@ Unified reasoning effort control via `resolveProviderOptions(provider, effort)` 
 | Change error display | `src/core/agent/loop.ts` → `extractErrorMessage()` |
 | Change NDJSON output | `src/infra/output/writer.ts` |
 | Change orchestration / batching | `src/core/triage/orchestrator.ts` |
+| Add graph-tool behavior | `src/core/agent/tools/query-graph.ts` |
+| Change graph client / discovery | `src/infra/graph/index.ts`, `src/infra/graph/mcp-client.ts` |
+| Toggle graph integration | env var `SAST_USE_GRAPH=1` (default off) |
+| Tune read-dedup behavior | `src/core/agent/tools/read.ts` → `DEDUP_MIN_BYTES`, `mergeRanges` |
