@@ -1,6 +1,34 @@
-import { readFileSync, statSync } from "node:fs";
+import { readFileSync, statSync, existsSync } from "node:fs";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { createHash } from "node:crypto";
 import { resolve, relative } from "node:path";
+
+const execFileAsync = promisify(execFile);
+const SUGGEST_IGNORED_DIRS = ["node_modules", ".git", "dist", "__pycache__", "venv", "build"];
+
+async function suggestPaths(root: string, basename: string): Promise<string[]> {
+  const args: string[] = ["--files", "--glob", `**/${basename}`];
+  for (const dir of SUGGEST_IGNORED_DIRS) {
+    args.push("--glob", `!${dir}`);
+    args.push("--glob", `!**/${dir}/**`);
+  }
+  args.push(root);
+  try {
+    const { stdout } = await execFileAsync("rg", args, {
+      encoding: "utf8",
+      maxBuffer: 5 * 1024 * 1024,
+      timeout: 5000,
+    });
+    return stdout.split("\n").map(s => s.trim()).filter(Boolean)
+      .map(abs => abs.startsWith(root + "/") ? abs.slice(root.length + 1) : abs)
+      .sort((a, b) => a.length - b.length)
+      .slice(0, 5);
+  } catch {
+    // rg exits 1 (no matches), times out, or is missing — degrade to no hint.
+    return [];
+  }
+}
 
 const MAX_BYTES = 50 * 1024;
 // Skip dedup for tiny files: a stub message can be larger than the original
@@ -75,6 +103,12 @@ export function createReadTool(opts: CreateReadToolOptions): ReadTool {
 
       let buf: Buffer;
       let mtimeMs: number;
+      if (!existsSync(abs)) {
+        const basename = path.split("/").pop() ?? path;
+        const matches = basename ? await suggestPaths(root, basename) : [];
+        const hint = matches.length ? ` — did you mean: ${matches.join(", ")}` : "";
+        throw new Error(`File not found: ${path}${hint}`);
+      }
       try {
         mtimeMs = statSync(abs).mtimeMs;
         buf = readFileSync(abs);
