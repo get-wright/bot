@@ -1,6 +1,6 @@
 {
   "name": "sast-triage",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Agentic SAST finding triage via LLM-driven codebase exploration",
   "type": "module",
   "bin": {
