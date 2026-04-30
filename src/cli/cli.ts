@@ -9,6 +9,13 @@ import { TriageOrchestrator } from "../core/triage/orchestrator.js";
 import { initLogger, log } from "../infra/logger.js";
 import { initTracing, hasLangSmithConfig } from "../infra/tracing.js";
 
+export function parseConcurrency(raw: string | undefined): number | undefined {
+  if (raw === undefined) return undefined;
+  const n = parseInt(raw, 10);
+  if (!Number.isFinite(n) || n < 1) return undefined;
+  return n;
+}
+
 export function run(): void {
   const program = new Command();
 
@@ -53,7 +60,7 @@ export function run(): void {
       const projectConfig = new ProjectConfig(process.cwd());
       const tomlConfig = projectConfig.hasConfig() ? projectConfig : undefined;
 
-      const concurrency = opts.concurrency !== undefined ? parseInt(opts.concurrency, 10) : undefined;
+      const concurrency = parseConcurrency(opts.concurrency);
       const maxSteps = opts.maxSteps !== undefined ? parseInt(opts.maxSteps, 10) : undefined;
 
       const resolved = resolveConfig({
@@ -65,7 +72,7 @@ export function run(): void {
         allowBash: opts.allowBash,
         maxSteps,
         memoryDb: opts.memoryDb,
-        concurrency: (concurrency !== undefined && concurrency >= 1 && concurrency <= 10) ? concurrency : undefined,
+        concurrency,
         outputPath: opts.output,
         reasoningEffort: opts.effort,
       }, tomlConfig);
