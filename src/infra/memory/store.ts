@@ -189,6 +189,8 @@ export class MemoryStore {
         verdict: verdictParse.data,
         reasoning: row.reasoning,
         key_evidence: evidence,
+        sink_line_quoted: "", // FUTURE: replaced by Task 3 verdict-validator backfill
+        attacker_payload: "", // FUTURE: replaced by Task 3 verdict-validator backfill
         suggested_fix: row.suggested_fix ?? undefined,
       },
       tool_calls: toolCalls,

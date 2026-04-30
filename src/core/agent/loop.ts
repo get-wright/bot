@@ -429,6 +429,8 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
         verdict: v.verdict,
         reasoning: backfilledReasoning,
         key_evidence: backfilledEvidence,
+        sink_line_quoted: "", // FUTURE: replaced by Task 3 verdict-validator backfill
+        attacker_payload: "", // FUTURE: replaced by Task 3 verdict-validator backfill
         suggested_fix: v.suggested_fix,
       };
       log.info("agent", "Backfilled verdict from accumulated text", {
@@ -505,6 +507,8 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
         verdict: object.verdict,
         reasoning,
         key_evidence: evidence,
+        sink_line_quoted: "", // FUTURE: replaced by Task 3 verdict-validator backfill
+        attacker_payload: "", // FUTURE: replaced by Task 3 verdict-validator backfill
         suggested_fix: object.suggested_fix,
       };
       log.info("agent", "Verdict recovered via generateObject fallback", {
@@ -520,6 +524,8 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
         verdict: "needs_review",
         reasoning: "Agent did not deliver a verdict within the maximum number of steps.",
         key_evidence: [],
+        sink_line_quoted: "", // FUTURE: replaced by Task 3 verdict-validator backfill
+        attacker_payload: "", // FUTURE: replaced by Task 3 verdict-validator backfill
       };
       onEvent({ type: "verdict", verdict: finalVerdict });
     }

@@ -24,5 +24,21 @@ export const TriageVerdictSchema = z.object({
   reasoning: z.string().default("").describe("Plain text analysis explaining WHY this verdict was reached. Focus on the data flow and security logic. Do NOT include evidence lists or fix suggestions here — use the dedicated fields below."),
   key_evidence: StringOrArray.default([]).describe("Short evidence items as an array of strings. Each item is one fact: a line number, code pattern, or protection found. Do NOT duplicate the reasoning text."),
   suggested_fix: z.string().optional().describe("Concrete fix suggestion. Only if verdict is true_positive."),
+  sink_line_quoted: z
+    .string()
+    .default("")
+    .describe(
+      "VERBATIM substring (≥20 chars) of the sink line as it appears in a read tool output. " +
+      "Must be the actual code at the dangerous operation, not your paraphrase. " +
+      "Required for true_positive and false_positive verdicts."
+    ),
+  attacker_payload: z
+    .string()
+    .default("")
+    .describe(
+      "Concrete attacker input that exploits this finding (e.g. '?id[$ne]=1' for NoSQLi, " +
+      "'<script>alert(1)</script>' for XSS, '; rm -rf /' for cmd injection). " +
+      "Required if verdict=true_positive. Use 'N/A' only if you can prove non-exploitability."
+    ),
 });
 export type TriageVerdict = z.infer<typeof TriageVerdictSchema>;
