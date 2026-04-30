@@ -24,7 +24,20 @@ jobs:
       - name: Install ripgrep (used by grep/glob tools)
         run: sudo apt-get update && sudo apt-get install -y ripgrep
 
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install code-review-graph (for integration tests)
+        run: |
+          python -m pip install --upgrade pip pipx
+          pipx install 'code-review-graph>=0.1,<1.0'
+          code-review-graph --version
+
       - name: Install + typecheck + test
+        env:
+          SAST_USE_GRAPH: "1"
         run: |
           bun install --frozen-lockfile
           bunx tsc --noEmit
