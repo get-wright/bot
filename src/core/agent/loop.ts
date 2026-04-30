@@ -12,6 +12,7 @@ import type { ReadRegistry } from "./tools/read.js";
 import { resolveProvider } from "../../infra/providers/registry.js";
 import { resolveProviderOptions, type ReasoningEffort } from "../../infra/providers/reasoning.js";
 import { log } from "../../infra/logger.js";
+import type { GraphClient } from "../../infra/graph/index.js";
 
 export interface AgentLoopConfig {
   finding: Finding;
@@ -25,6 +26,7 @@ export interface AgentLoopConfig {
   apiKey?: string;
   baseUrl?: string;
   reasoningEffort?: ReasoningEffort;
+  graphClient?: GraphClient | null;
 }
 
 export interface AgentLoopResult {
@@ -141,6 +143,7 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
     allowBash,
     readRegistry,
     getStep: () => currentStep,
+    graphClient: config.graphClient,
   });
   const doomLoop = new DoomLoopDetector();
   let finalVerdict: TriageVerdict | null = null;
@@ -163,7 +166,7 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
     systemPromptParts.push(`## Historical Context\n${memoryHints.map((h) => `- ${h}`).join("\n")}`);
   }
 
-  const userMessage = formatFindingMessage(finding);
+  const userMessage = formatFindingMessage(finding, { graphAvailable: !!config.graphClient });
 
   const providerOptions = config.reasoningEffort
     ? (resolveProviderOptions(config.provider, config.reasoningEffort) as Parameters<typeof streamText>[0]["providerOptions"])

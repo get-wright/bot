@@ -85,7 +85,7 @@ is correct.
 - If you cannot determine the verdict after reasonable investigation, use needs_review.
 - Call the verdict tool when ready. Do not keep exploring after you have enough evidence.`;
 
-export function formatFindingMessage(finding: Finding): string {
+export function formatFindingMessage(finding: Finding, opts?: { graphAvailable?: boolean }): string {
   const sections: string[] = [];
 
   const cweList = finding.extra.metadata.cwe;
@@ -123,6 +123,15 @@ ${finding.extra.lines}
     if (traceParts.length > 0) {
       sections.push(`## Dataflow Trace\n${traceParts.join("\n")}`);
     }
+  }
+
+  if (opts?.graphAvailable) {
+    sections.push(
+      "## Tools available\n" +
+      "Code knowledge graph is indexed. Prefer query_graph (callers_of/callees_of/imports_of/file_summary) " +
+      "and search_symbol over grep when looking for definitions or call sites — they return exact line " +
+      "ranges so you can read just the relevant function.",
+    );
   }
 
   sections.push(`## Your Task

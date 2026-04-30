@@ -7,6 +7,7 @@ import type { MemoryStore, CachedRecord } from "../../infra/memory/store.js";
 import type { AppConfig } from "../../cli/config.js";
 import type { AgentLoopResult } from "../agent/loop.js";
 import type { FollowUpExchange } from "../agent/follow-up.js";
+import { maybeCreateGraphClient, type GraphClient } from "../../infra/graph/index.js";
 import { parseSemgrepOutput, fingerprintFinding } from "../parser/semgrep.js";
 import { prefilterFinding } from "../parser/prefilter.js";
 import { runAgentLoop } from "../agent/loop.js";
@@ -52,6 +53,24 @@ type RunnerErrorResult = {
 
 export type TriageResult = AgentLoopResult | RunnerErrorResult;
 
+export interface TriageOpts {
+  finding: Finding;
+  fingerprint: string;
+  config: AppConfig;
+  onEvent: (event: AgentEvent) => void;
+  graphClient?: GraphClient | null;
+}
+
+export interface TriageBatchOpts {
+  items: { finding: Finding; fingerprint: string }[];
+  config: AppConfig;
+  concurrency: number;
+  onResult: (fingerprint: string, result: TriageResult) => void;
+  abortSignal?: AbortSignal;
+  onEvent?: (fingerprint: string, event: AgentEvent) => void;
+  graphClient?: GraphClient | null;
+}
+
 export class TriageOrchestrator {
   private memory: MemoryStore;
 
@@ -96,12 +115,8 @@ export class TriageOrchestrator {
     return { active, filtered, total: allFindings.length };
   }
 
-  async triage(
-    finding: Finding,
-    fingerprint: string,
-    config: AppConfig,
-    onEvent: (event: AgentEvent) => void,
-  ): Promise<AgentLoopResult> {
+  async triage(opts: TriageOpts): Promise<AgentLoopResult> {
+    const { finding, fingerprint, config, onEvent, graphClient } = opts;
     const memoryHints = this.memory.getHints(finding.check_id, fingerprint);
 
     const result = await runAgentLoop({
@@ -116,6 +131,7 @@ export class TriageOrchestrator {
       apiKey: config.apiKey,
       baseUrl: config.baseUrl,
       reasoningEffort: config.reasoningEffort,
+      graphClient,
     });
 
     this.memory.store({
@@ -179,32 +195,37 @@ export class TriageOrchestrator {
     }
 
     // 2. Triage fresh findings via batch
-    await this.triageBatch(
-      fresh,
-      config,
-      config.concurrency ?? 1,
-      (fingerprint, result) => {
-        const item = fresh.find((x) => x.fingerprint === fingerprint);
-        if (!item) return;
-        writer.append(toOutputRow(item.finding, result, false, new Date().toISOString()));
-      },
-      undefined,
-      (fingerprint, event) => {
-        console.log(formatEvent(event, fingerprint));
-      },
-    );
+    const graphClient: GraphClient | null = await maybeCreateGraphClient(process.cwd());
+    if (graphClient) {
+      console.error("[graph] code-review-graph integration active");
+    }
+
+    try {
+      await this.triageBatch({
+        items: fresh,
+        config,
+        concurrency: config.concurrency ?? 1,
+        onResult: (fingerprint, result) => {
+          const item = fresh.find((x) => x.fingerprint === fingerprint);
+          if (!item) return;
+          writer.append(toOutputRow(item.finding, result, false, new Date().toISOString()));
+        },
+        onEvent: (fingerprint, event) => {
+          console.log(formatEvent(event, fingerprint));
+        },
+        graphClient,
+      });
+    } finally {
+      if (graphClient) {
+        await graphClient.close().catch(() => {});
+      }
+    }
 
     writer.flush();
   }
 
-  async triageBatch(
-    items: { finding: Finding; fingerprint: string }[],
-    config: AppConfig,
-    concurrency: number,
-    onResult: (fingerprint: string, result: TriageResult) => void,
-    abortSignal?: AbortSignal,
-    onEvent?: (fingerprint: string, event: AgentEvent) => void,
-  ): Promise<void> {
+  async triageBatch(opts: TriageBatchOpts): Promise<void> {
+    const { items, config, concurrency, onResult, abortSignal, onEvent, graphClient } = opts;
     // Stagger delay between launching concurrent requests to avoid
     // thundering herd on provider APIs (empty 200 responses, rate limits).
     const STAGGER_MS = 500;
@@ -229,8 +250,12 @@ export class TriageOrchestrator {
           const item = items[idx]!;
           running++;
 
-          this.triage(item.finding, item.fingerprint, config, (event) => {
-            onEvent?.(item.fingerprint, event);
+          this.triage({
+            finding: item.finding,
+            fingerprint: item.fingerprint,
+            config,
+            onEvent: (event) => onEvent?.(item.fingerprint, event),
+            graphClient,
           })
             .then((result) => {
               onResult(item.fingerprint, result);
