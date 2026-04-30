@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { createGraphClient, type GraphClient } from "./mcp-client.js";
 
+export { createGraphClient } from "./mcp-client.js";
 export type { GraphClient } from "./mcp-client.js";
 export type { NodeInfo, QueryGraphArgs, SearchSymbolArgs } from "./types.js";
 
@@ -22,7 +23,8 @@ export function findGraphBinary(): string | null {
 }
 
 export function isGraphStale(repoRoot: string): boolean {
-  const dbPath = join(repoRoot, ".code-review-graph", "graph.sqlite");
+  // Upstream emits `.code-review-graph/graph.db` (SQLite file).
+  const dbPath = join(repoRoot, ".code-review-graph", "graph.db");
   if (!existsSync(dbPath)) return true;
   const ageMs = Date.now() - statSync(dbPath).mtimeMs;
   return ageMs > STALE_AFTER_MS;

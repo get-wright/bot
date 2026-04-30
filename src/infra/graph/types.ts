@@ -11,8 +11,9 @@ export const NodeInfoSchema = z.object({
   file_path: z.string(),
   line_start: z.number().int().nonnegative(),
   line_end: z.number().int().nonnegative(),
-  params: z.string().optional(),
-  return_type: z.string().optional(),
+  // Upstream may emit null instead of omitting the field; normalize to undefined.
+  params: z.string().nullish().transform(v => v ?? undefined),
+  return_type: z.string().nullish().transform(v => v ?? undefined),
 });
 export type NodeInfo = z.infer<typeof NodeInfoSchema>;
 

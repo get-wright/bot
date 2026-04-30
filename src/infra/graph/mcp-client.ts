@@ -60,10 +60,15 @@ export async function createGraphClient(opts: CreateGraphClientOptions): Promise
     } catch {
       return [];
     }
-    const nodes = (payload as { nodes?: unknown[] }).nodes;
-    if (!Array.isArray(nodes)) return [];
+    // Upstream code-review-graph emits results under "results"; older envelopes
+    // use "nodes". Accept both so we're forward/backward compatible.
+    const root = payload as { results?: unknown[]; nodes?: unknown[] };
+    const rows = Array.isArray(root.results) ? root.results
+               : Array.isArray(root.nodes)   ? root.nodes
+               : null;
+    if (!rows) return [];
     const parsed: NodeInfo[] = [];
-    for (const n of nodes) {
+    for (const n of rows) {
       const r = NodeInfoSchema.safeParse(n);
       if (r.success) parsed.push(r.data);
     }
@@ -72,7 +77,7 @@ export async function createGraphClient(opts: CreateGraphClientOptions): Promise
 
   return {
     queryGraph: (args) => callAndParse("query_graph_tool", args),
-    searchSymbol: ({ query, topK }) => callAndParse("semantic_search_nodes_tool", { query, top_k: topK ?? 5 }),
+    searchSymbol: ({ query, topK }) => callAndParse("semantic_search_nodes_tool", { query, limit: topK ?? 5 }),
     close: async () => {
       try { await client.close(); } catch { /* swallow shutdown errors */ }
     },
