@@ -9,6 +9,7 @@ import { SYSTEM_PROMPT, formatFindingMessage } from "./system-prompt.js";
 import { DoomLoopDetector } from "./doom-loop.js";
 import { createTools } from "./tools/index.js";
 import type { ReadRegistry } from "./tools/read.js";
+import { validateVerdict } from "./verdict-validator.js";
 import { resolveProvider } from "../../infra/providers/registry.js";
 import { resolveProviderOptions, type ReasoningEffort } from "../../infra/providers/reasoning.js";
 import { log } from "../../infra/logger.js";
@@ -157,6 +158,7 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
   // Capture tool calls and token usage for persistence, so cached findings
   // can show what was read and how many tokens were used.
   const capturedToolCalls: { tool: string; args: Record<string, unknown> }[] = [];
+  const capturedReadOutputs: string[] = [];
   let capturedInputTokens = 0;
   let capturedOutputTokens = 0;
   // Track tool call start times for duration measurement
@@ -260,6 +262,9 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
               ? lines.slice(0, 3).join("\n") + `\n... (${lines.length} lines)`
               : output;
           onEvent({ type: "tool_result", tool: chunk.toolName, summary, full: output, durationMs, success });
+          if (chunk.toolName === "read") {
+            capturedReadOutputs.push(output);
+          }
           break;
         }
       }
@@ -314,6 +319,7 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
     // Reset state for retry
     accumulatedText = "";
     finalVerdict = null;
+    capturedReadOutputs.length = 0;
 
     const retryResult = streamText({
       model: languageModel,
@@ -369,6 +375,9 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
             const success = !output.startsWith("Command failed:") && !output.startsWith("Error:");
             const summary = lines.length > 3 ? lines.slice(0, 3).join("\n") + `\n... (${lines.length} lines)` : output;
             onEvent({ type: "tool_result", tool: chunk.toolName, summary, full: output, durationMs, success });
+            if (chunk.toolName === "read") {
+              capturedReadOutputs.push(output);
+            }
             break;
           }
         }
@@ -429,9 +438,9 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
         verdict: v.verdict,
         reasoning: backfilledReasoning,
         key_evidence: backfilledEvidence,
-        sink_line_quoted: "", // FUTURE: replaced by Task 3 verdict-validator backfill
-        attacker_payload: "", // FUTURE: replaced by Task 3 verdict-validator backfill
         suggested_fix: v.suggested_fix,
+        sink_line_quoted: v.sink_line_quoted ?? "",
+        attacker_payload: v.attacker_payload ?? "",
       };
       log.info("agent", "Backfilled verdict from accumulated text", {
         reasoningSource: v.reasoning.trim() ? "toolCall" : (synthesized ? "accumulatedText" : "placeholder"),
@@ -439,6 +448,14 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
         evidenceCount: finalVerdict.key_evidence.length,
       });
     }
+    const validated = validateVerdict(finalVerdict, capturedReadOutputs);
+    if (validated.downgraded) {
+      log.info("agent", `Verdict auto-downgraded: ${validated.note}`, {
+        original: finalVerdict.verdict,
+        final: validated.verdict.verdict,
+      });
+    }
+    finalVerdict = validated.verdict;
     onEvent({ type: "verdict", verdict: finalVerdict });
   }
 
@@ -474,6 +491,22 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
       reasoning: z.string().optional().describe("Detailed explanation referencing specific code lines and data flow"),
       key_evidence: z.array(z.string()).optional().describe("Specific evidence items (line numbers, code patterns, framework protections)"),
       suggested_fix: z.string().optional().describe("Concrete fix suggestion if applicable"),
+      sink_line_quoted: z
+        .string()
+        .optional()
+        .describe(
+          "VERBATIM ≥20-char substring of the actual sink line, copied from a read tool output. " +
+          "Must be the actual code at the dangerous operation, not your paraphrase. " +
+          "Required for true_positive and false_positive."
+        ),
+      attacker_payload: z
+        .string()
+        .optional()
+        .describe(
+          "Concrete attacker input that exploits this finding (e.g. '?id[$ne]=1' for NoSQLi, " +
+          "'<script>alert(1)</script>' for XSS, '; rm -rf /' for cmd injection). " +
+          "Required if verdict=true_positive. Use 'N/A' only if you can prove non-exploitability."
+        ),
     });
     try {
       const responseMessages = (await result.response).messages;
@@ -490,7 +523,9 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
             content:
               "Based on your investigation above, deliver your final verdict as JSON with " +
               "verdict, reasoning (detailed analysis with line numbers), key_evidence " +
-              "(specific evidence items), and suggested_fix if applicable.",
+              "(specific evidence items), suggested_fix if applicable, " +
+              "sink_line_quoted (VERBATIM ≥20-char substring of the sink line copied from a read), " +
+              "and attacker_payload (concrete exploit input — required if verdict=true_positive).",
           },
         ],
       });
@@ -507,9 +542,9 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
         verdict: object.verdict,
         reasoning,
         key_evidence: evidence,
-        sink_line_quoted: "", // FUTURE: replaced by Task 3 verdict-validator backfill
-        attacker_payload: "", // FUTURE: replaced by Task 3 verdict-validator backfill
         suggested_fix: object.suggested_fix,
+        sink_line_quoted: object.sink_line_quoted ?? "",
+        attacker_payload: object.attacker_payload ?? "",
       };
       log.info("agent", "Verdict recovered via generateObject fallback", {
         verdict: finalVerdict.verdict,
@@ -517,6 +552,14 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
         reasoningLength: finalVerdict.reasoning.length,
         evidenceCount: finalVerdict.key_evidence.length,
       });
+      const fallbackValidated = validateVerdict(finalVerdict, capturedReadOutputs);
+      if (fallbackValidated.downgraded) {
+        log.info("agent", `Verdict auto-downgraded: ${fallbackValidated.note}`, {
+          original: finalVerdict.verdict,
+          final: fallbackValidated.verdict.verdict,
+        });
+      }
+      finalVerdict = fallbackValidated.verdict;
       onEvent({ type: "verdict", verdict: finalVerdict });
     } catch (err) {
       log.warn("agent", `generateObject fallback failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -524,9 +567,11 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
         verdict: "needs_review",
         reasoning: "Agent did not deliver a verdict within the maximum number of steps.",
         key_evidence: [],
-        sink_line_quoted: "", // FUTURE: replaced by Task 3 verdict-validator backfill
-        attacker_payload: "", // FUTURE: replaced by Task 3 verdict-validator backfill
+        sink_line_quoted: "",
+        attacker_payload: "",
       };
+      const placeholderValidated = validateVerdict(finalVerdict, capturedReadOutputs);
+      finalVerdict = placeholderValidated.verdict;
       onEvent({ type: "verdict", verdict: finalVerdict });
     }
   }
