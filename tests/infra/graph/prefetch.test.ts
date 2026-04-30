@@ -45,16 +45,10 @@ describe("prefetchGraphContext", () => {
     expect(out).toBeNull();
   });
 
-  it("formats file summary + enclosing function + callers + callees", async () => {
+  it("formats file summary + enclosing function only (no callers/callees)", async () => {
     const client = mockClient({
       "file_summary:app/foo.js": [
         fnNode("/repo/app/foo.js::handler", "/repo/app/foo.js", 10, 30),
-        fnNode("/repo/app/foo.js::helper", "/repo/app/foo.js", 35, 50),
-      ],
-      "callers_of:/repo/app/foo.js::handler": [
-        fnNode("/repo/server.js::wireRoutes", "/repo/server.js", 100, 120),
-      ],
-      "callees_of:/repo/app/foo.js::handler": [
         fnNode("/repo/app/foo.js::helper", "/repo/app/foo.js", 35, 50),
       ],
     });
@@ -64,16 +58,18 @@ describe("prefetchGraphContext", () => {
     expect(out).toContain("app/foo.js::handler");
     expect(out).toContain("app/foo.js::helper");
     expect(out).toContain("Enclosing function:");
-    // file_path was relativized in formatted output (app/foo.js:10-30, not /repo/app/foo.js:10-30).
-    // qualified_name is left as-is since it's an opaque graph identifier.
+    // file_path is relativized; qualified_name preserved as opaque graph identifier.
     expect(out).toMatch(/app\/foo\.js:10-30/);
     expect(out).not.toMatch(/\/repo\/app\/foo\.js:10-30/);
-    expect(out).toContain("Callers");
-    expect(out).toContain("server.js::wireRoutes");
-    expect(out).toContain("Callees");
+    // Trimmed prefetch: no callers/callees — they bias the model toward FP by
+    // making the wrapper function "look safe" without reading the sink.
+    expect(out).not.toContain("Callers");
+    expect(out).not.toContain("Callees");
+    // Only file_summary should be queried — no callers_of/callees_of round-trips.
+    expect(client.queryGraph).toHaveBeenCalledTimes(1);
   });
 
-  it("skips callers/callees when no enclosing function found", async () => {
+  it("emits file_summary even when no enclosing function found", async () => {
     const client = mockClient({
       "file_summary:app/foo.js": [
         fnNode("/repo/app/foo.js::handler", "/repo/app/foo.js", 10, 30),
@@ -83,21 +79,7 @@ describe("prefetchGraphContext", () => {
     expect(out).not.toBeNull();
     expect(out).toContain("File contains 1 symbol");
     expect(out).not.toContain("Enclosing function");
-    expect(out).not.toContain("Callers");
-    expect(out).not.toContain("Callees");
     expect(client.queryGraph).toHaveBeenCalledTimes(1);
-  });
-
-  it("does not throw when callers_of returns empty", async () => {
-    const client = mockClient({
-      "file_summary:app/foo.js": [
-        fnNode("/repo/app/foo.js::handler", "/repo/app/foo.js", 10, 30),
-      ],
-    });
-    const out = await prefetchGraphContext(makeFinding("app/foo.js", 15), client, "/repo");
-    expect(out).toContain("Enclosing function:");
-    expect(out).not.toContain("Callers");
-    expect(out).not.toContain("Callees");
   });
 
   it("caps long lists to keep prompt size bounded", async () => {

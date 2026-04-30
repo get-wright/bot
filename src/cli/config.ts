@@ -80,7 +80,7 @@ export function resolveConfig(opts: ResolveOpts, toml?: ProjectConfig): Resolved
     outputPath: opts.outputPath ?? env.SAST_OUTPUT ?? defaultOutputPath(),
     memoryDb: opts.memoryDb ?? env.SAST_MEMORY_DB ?? toml?.memoryDbPath ?? defaultMemoryDb(),
     allowBash: opts.allowBash ?? bool(env.SAST_ALLOW_BASH) ?? false,
-    maxSteps: opts.maxSteps ?? num(env.SAST_MAX_STEPS) ?? 25,
+    maxSteps: opts.maxSteps ?? num(env.SAST_MAX_STEPS) ?? 20,
     concurrency: opts.concurrency ?? num(env.SAST_CONCURRENCY) ?? toml?.concurrency ?? 1,
     reasoningEffort: (opts.reasoningEffort ?? env.SAST_EFFORT ?? toml?.reasoningEffort) as ReasoningEffort | undefined,
     headless: true,
