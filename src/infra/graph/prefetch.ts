@@ -1,7 +1,10 @@
 import type { GraphClient, NodeInfo } from "./index.js";
 import type { Finding } from "../../core/models/finding.js";
+import { findCallPathsToFunction } from "./multipath.js";
 
 const MAX_FILE_SYMBOLS = 10;
+const MAX_PATHS = 3;
+const MAX_PATH_DEPTH = 4;
 
 function relativize(absPath: string, root: string): string {
   if (absPath.startsWith(root + "/")) return absPath.slice(root.length + 1);
@@ -16,15 +19,20 @@ function isFunctionLike(kind: string | undefined): boolean {
   return k === "function" || k === "method";
 }
 
+function shortName(n: NodeInfo): string {
+  return n.qualified_name.split("::").slice(-1)[0] ?? n.qualified_name;
+}
+
 function formatNode(n: NodeInfo, root: string): string {
   const params = n.params ? `  (${n.params})` : "";
   return `${n.kind} ${n.qualified_name}  ${relativize(n.file_path, root)}:${n.line_start}-${n.line_end}${params}`;
 }
 
-// Renders file_summary + enclosing function only. Callers/callees were
-// dropped after juice-shop A/B showed they bias the model toward FP — the
-// model treats wrapper-function summaries as proof of safety and skips
-// reading the sink (lost real mongo-nosqli + directory-listing TPs).
+function formatPath(path: NodeInfo[], root: string): string {
+  const arrow = path.map(n => `${shortName(n)} (${relativize(n.file_path, root)}:${n.line_start})`).join(" -> ");
+  return `  ${arrow}`;
+}
+
 export async function prefetchGraphContext(
   finding: Finding,
   graphClient: GraphClient,
@@ -53,6 +61,18 @@ export async function prefetchGraphContext(
   if (enclosing) {
     lines.push("");
     lines.push(`Enclosing function: ${formatNode(enclosing, projectRoot)}`);
+
+    const paths = await findCallPathsToFunction(graphClient, enclosing, {
+      maxPaths: MAX_PATHS,
+      maxDepth: MAX_PATH_DEPTH,
+    });
+    if (paths.length > 0) {
+      lines.push("");
+      lines.push(`Call paths to sink (${paths.length} of up to ${MAX_PATHS}):`);
+      for (const p of paths) {
+        lines.push(formatPath(p, projectRoot));
+      }
+    }
   }
 
   return lines.join("\n");

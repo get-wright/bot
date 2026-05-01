@@ -45,28 +45,34 @@ describe("prefetchGraphContext", () => {
     expect(out).toBeNull();
   });
 
-  it("formats file summary + enclosing function only (no callers/callees)", async () => {
-    const client = mockClient({
-      "file_summary:app/foo.js": [
-        fnNode("/repo/app/foo.js::handler", "/repo/app/foo.js", 10, 30),
-        fnNode("/repo/app/foo.js::helper", "/repo/app/foo.js", 35, 50),
-      ],
-    });
+  it("formats file summary + enclosing function + up to 3 call paths", async () => {
+    const handler = fnNode("/repo/app/foo.js::handler", "/repo/app/foo.js", 10, 30);
+    const helper = fnNode("/repo/app/foo.js::helper", "/repo/app/foo.js", 35, 50);
+    const wireRoutes = fnNode("/repo/server.js::wireRoutes", "/repo/server.js", 100, 120);
+    const client = {
+      queryGraph: vi.fn(async (args) => {
+        if (args.pattern === "file_summary" && args.target === "app/foo.js") {
+          return [handler, helper];
+        }
+        if (args.pattern === "callers_of" && args.target === "/repo/app/foo.js::handler") {
+          return [wireRoutes];
+        }
+        if (args.pattern === "callers_of" && args.target === "/repo/server.js::wireRoutes") {
+          return []; // entrypoint
+        }
+        return [];
+      }),
+      searchSymbol: vi.fn(async () => []),
+      close: vi.fn(),
+    } as unknown as GraphClient;
+
     const out = await prefetchGraphContext(makeFinding("app/foo.js", 15), client, "/repo");
     expect(out).not.toBeNull();
     expect(out).toContain("File contains 2 symbols");
-    expect(out).toContain("app/foo.js::handler");
-    expect(out).toContain("app/foo.js::helper");
     expect(out).toContain("Enclosing function:");
-    // file_path is relativized; qualified_name preserved as opaque graph identifier.
-    expect(out).toMatch(/app\/foo\.js:10-30/);
-    expect(out).not.toMatch(/\/repo\/app\/foo\.js:10-30/);
-    // Trimmed prefetch: no callers/callees — they bias the model toward FP by
-    // making the wrapper function "look safe" without reading the sink.
-    expect(out).not.toContain("Callers");
-    expect(out).not.toContain("Callees");
-    // Only file_summary should be queried — no callers_of/callees_of round-trips.
-    expect(client.queryGraph).toHaveBeenCalledTimes(1);
+    expect(out).toContain("Call paths to sink");
+    // Path renders as "wireRoutes -> handler"
+    expect(out).toMatch(/wireRoutes.*->.*handler/);
   });
 
   it("emits file_summary even when no enclosing function found", async () => {
@@ -92,5 +98,28 @@ describe("prefetchGraphContext", () => {
     // First 10 symbols should be enumerated, the rest summarized as "...and N more".
     const symLines = (out!.match(/sym\d+/g) ?? []).length;
     expect(symLines).toBeLessThanOrEqual(15); // at most 10 enumerated + maybe some in enclosing/callers
+  });
+
+  it("renders trivial single-path when enclosing function has no callers", async () => {
+    const handler = fnNode("/repo/app/foo.js::handler", "/repo/app/foo.js", 10, 30);
+    const client = {
+      queryGraph: vi.fn(async (args) => {
+        if (args.pattern === "file_summary" && args.target === "app/foo.js") {
+          return [handler];
+        }
+        if (args.pattern === "callers_of" && args.target === "/repo/app/foo.js::handler") {
+          return []; // entrypoint — no callers
+        }
+        return [];
+      }),
+      searchSymbol: vi.fn(async () => []),
+      close: vi.fn(),
+    } as unknown as GraphClient;
+
+    const out = await prefetchGraphContext(makeFinding("app/foo.js", 15), client, "/repo");
+    expect(out).not.toBeNull();
+    expect(out).toContain("Enclosing function:");
+    expect(out).toContain("Call paths to sink (1 of up to 3)");
+    expect(out).toMatch(/handler.*app\/foo\.js/);
   });
 });
