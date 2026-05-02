@@ -52,7 +52,11 @@ async function openGraphDb(dbPath: string): Promise<SparseDb | null> {
   try {
     if (isBun) {
       const mod = await import("bun:sqlite");
-      const db = new mod.Database(dbPath, { readonly: true });
+      // NOTE: do NOT use {readonly: true} — graph.db is in WAL mode and bun:sqlite's
+      // readonly path refuses to create the missing -shm sidecar, throwing
+      // "unable to open database file" on every query. A normal open is fine
+      // since we only run a single SELECT and close the handle immediately.
+      const db = new mod.Database(dbPath);
       return {
         countNodes: () => (db.query("SELECT COUNT(*) AS c FROM nodes").get() as { c: number }).c,
         close: () => db.close(),
