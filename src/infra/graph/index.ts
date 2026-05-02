@@ -13,6 +13,11 @@ const execFileAsync = promisify(execFile);
 // trade-off between freshness and cost for a long-running agent loop.
 const STALE_AFTER_MS = 24 * 60 * 60 * 1000;
 
+// <5 nodes means the build succeeded but indexed nothing meaningful (empty or unsupported-language repo).
+const MIN_GRAPH_NODES = 5;
+
+const isBun = typeof (globalThis as { Bun?: unknown }).Bun !== "undefined";
+
 export function findGraphBinary(): string | null {
   try {
     const path = execFileSync("which", ["code-review-graph"], { encoding: "utf8" }).trim();
@@ -38,15 +43,83 @@ export async function ensureGraphBuilt(repoRoot: string, binary: string): Promis
   });
 }
 
-export async function maybeCreateGraphClient(repoRoot: string): Promise<GraphClient | null> {
+interface SparseDb {
+  countNodes(): number;
+  close(): void;
+}
+
+async function openGraphDb(dbPath: string): Promise<SparseDb | null> {
+  try {
+    if (isBun) {
+      const mod = await import("bun:sqlite");
+      // NOTE: do NOT use {readonly: true} — graph.db is in WAL mode and bun:sqlite's
+      // readonly path refuses to create the missing -shm sidecar, throwing
+      // "unable to open database file" on every query. A normal open is fine
+      // since we only run a single SELECT and close the handle immediately.
+      const db = new mod.Database(dbPath);
+      return {
+        countNodes: () => (db.query("SELECT COUNT(*) AS c FROM nodes").get() as { c: number }).c,
+        close: () => db.close(),
+      };
+    }
+    const mod = await import("better-sqlite3");
+    const db = new mod.default(dbPath, { readonly: true });
+    return {
+      countNodes: () => (db.prepare("SELECT COUNT(*) AS c FROM nodes").get() as { c: number }).c,
+      close: () => db.close(),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Pure helper: returns true when `<repoRoot>/.code-review-graph/graph.db` is
+ * missing OR contains fewer than MIN_GRAPH_NODES rows in the `nodes` table.
+ * Exported so it can be tested directly.
+ */
+export async function isGraphDbSparse(repoRoot: string, minNodes = MIN_GRAPH_NODES): Promise<boolean> {
+  const dbPath = join(repoRoot, ".code-review-graph", "graph.db");
+  if (!existsSync(dbPath)) return true;
+  const db = await openGraphDb(dbPath);
+  if (!db) return true;
+  try {
+    return db.countNodes() < minNodes;
+  } catch {
+    return true;
+  } finally {
+    db.close();
+  }
+}
+
+export interface MaybeCreateGraphClientDeps {
+  findBinary?: () => string | null;
+  ensureBuilt?: (repoRoot: string, binary: string) => Promise<void>;
+  isSparse?: (repoRoot: string) => Promise<boolean>;
+  createClient?: (opts: { repoRoot: string; binaryPath: string }) => Promise<GraphClient | null>;
+}
+
+export async function maybeCreateGraphClient(
+  repoRoot: string,
+  deps: MaybeCreateGraphClientDeps = {},
+): Promise<GraphClient | null> {
   if (process.env.SAST_USE_GRAPH !== "1") return null;
-  const binary = findGraphBinary();
+  const findBinary   = deps.findBinary   ?? findGraphBinary;
+  const ensureBuilt  = deps.ensureBuilt  ?? ensureGraphBuilt;
+  const isSparse     = deps.isSparse     ?? isGraphDbSparse;
+  const mkClient     = deps.createClient ?? createGraphClient;
+
+  const binary = findBinary();
   if (!binary) return null;
   try {
-    await ensureGraphBuilt(repoRoot, binary);
+    await ensureBuilt(repoRoot, binary);
   } catch (e) {
     console.error(`[graph] build failed: ${e instanceof Error ? e.message : String(e)}`);
     return null;
   }
-  return createGraphClient({ repoRoot, binaryPath: binary });
+  if (await isSparse(repoRoot)) {
+    console.error("[graph] sparse or missing DB — disabling graph integration");
+    return null;
+  }
+  return mkClient({ repoRoot, binaryPath: binary });
 }

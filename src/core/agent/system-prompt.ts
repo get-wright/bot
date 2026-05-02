@@ -48,6 +48,19 @@ side, downgrade to needs_review rather than true_positive — unless the code's
 defenses are clear and prove non-exploitability, in which case false_positive
 is correct.
 
+## Evidence Requirements (enforced)
+
+Your verdict tool call MUST include:
+- \`sink_line_quoted\`: a verbatim ≥20-character substring of the sink line, copied
+  exactly from a read tool output. Not your paraphrase. If you cannot quote the sink
+  line, you have not read it — read it now or use needs_review.
+- \`attacker_payload\` (for true_positive only): the concrete attacker input bytes
+  that exploit this specific sink. If you cannot construct such bytes, the verdict
+  is not true_positive — choose false_positive (with proof) or needs_review.
+
+These checks run post-hoc. A verdict that fails them is auto-downgraded to
+needs_review with a note in the reasoning.
+
 ## Decision Framework
 
 ### True Positive — exploitable vulnerability
@@ -85,7 +98,10 @@ is correct.
 - If you cannot determine the verdict after reasonable investigation, use needs_review.
 - Call the verdict tool when ready. Do not keep exploring after you have enough evidence.`;
 
-export function formatFindingMessage(finding: Finding, opts?: { graphAvailable?: boolean }): string {
+export function formatFindingMessage(
+  finding: Finding,
+  opts?: { graphAvailable?: boolean; graphContext?: string | null },
+): string {
   const sections: string[] = [];
 
   const cweList = finding.extra.metadata.cwe;
@@ -123,6 +139,17 @@ ${finding.extra.lines}
     if (traceParts.length > 0) {
       sections.push(`## Dataflow Trace\n${traceParts.join("\n")}`);
     }
+  }
+
+  if (opts?.graphContext) {
+    sections.push(`## Code context (pre-computed)
+The following structural context was computed from the project's code knowledge graph
+*before* you started. Use it to skip generic file exploration — go straight to reads of
+the specific symbols or callers/callees you need to understand the data flow.
+
+\`\`\`
+${opts.graphContext}
+\`\`\``);
   }
 
   if (opts?.graphAvailable) {

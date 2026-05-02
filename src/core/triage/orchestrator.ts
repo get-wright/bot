@@ -8,6 +8,7 @@ import type { AppConfig } from "../../cli/config.js";
 import type { AgentLoopResult } from "../agent/loop.js";
 import type { FollowUpExchange } from "../agent/follow-up.js";
 import { maybeCreateGraphClient, type GraphClient } from "../../infra/graph/index.js";
+import { prefetchGraphContext } from "../../infra/graph/prefetch.js";
 import { parseSemgrepOutput, fingerprintFinding } from "../parser/semgrep.js";
 import { prefilterFinding } from "../parser/prefilter.js";
 import { runAgentLoop } from "../agent/loop.js";
@@ -59,6 +60,7 @@ export interface TriageOpts {
   config: AppConfig;
   onEvent: (event: AgentEvent) => void;
   graphClient?: GraphClient | null;
+  graphContext?: string | null;
 }
 
 export interface TriageBatchOpts {
@@ -69,6 +71,7 @@ export interface TriageBatchOpts {
   abortSignal?: AbortSignal;
   onEvent?: (fingerprint: string, event: AgentEvent) => void;
   graphClient?: GraphClient | null;
+  graphContexts?: Map<string, string>;
 }
 
 export class TriageOrchestrator {
@@ -116,7 +119,7 @@ export class TriageOrchestrator {
   }
 
   async triage(opts: TriageOpts): Promise<AgentLoopResult> {
-    const { finding, fingerprint, config, onEvent, graphClient } = opts;
+    const { finding, fingerprint, config, onEvent, graphClient, graphContext } = opts;
     const memoryHints = this.memory.getHints(finding.check_id, fingerprint);
 
     const result = await runAgentLoop({
@@ -132,6 +135,7 @@ export class TriageOrchestrator {
       baseUrl: config.baseUrl,
       reasoningEffort: config.reasoningEffort,
       graphClient,
+      graphContext,
     });
 
     this.memory.store({
@@ -200,6 +204,25 @@ export class TriageOrchestrator {
       console.error("[graph] code-review-graph integration active");
     }
 
+    // Optional: prefetch structural context per finding from the graph and
+    // inject it into the system prompt to seed the agent's investigation.
+    let graphContexts: Map<string, string> | undefined;
+    if (graphClient && process.env.SAST_GRAPH_PREFETCH === "1") {
+      graphContexts = new Map();
+      const root = process.cwd();
+      await Promise.all(
+        fresh.map(async (item) => {
+          try {
+            const ctx = await prefetchGraphContext(item.finding, graphClient, root);
+            if (ctx) graphContexts!.set(item.fingerprint, ctx);
+          } catch {
+            // Best-effort — never fail triage because prefetch failed.
+          }
+        }),
+      );
+      console.error(`[graph] prefetched context for ${graphContexts.size}/${fresh.length} findings`);
+    }
+
     try {
       await this.triageBatch({
         items: fresh,
@@ -214,6 +237,7 @@ export class TriageOrchestrator {
           console.log(formatEvent(event, fingerprint));
         },
         graphClient,
+        graphContexts,
       });
     } finally {
       if (graphClient) {
@@ -225,7 +249,7 @@ export class TriageOrchestrator {
   }
 
   async triageBatch(opts: TriageBatchOpts): Promise<void> {
-    const { items, config, concurrency, onResult, abortSignal, onEvent, graphClient } = opts;
+    const { items, config, concurrency, onResult, abortSignal, onEvent, graphClient, graphContexts } = opts;
     // Stagger delay between launching concurrent requests to avoid
     // thundering herd on provider APIs (empty 200 responses, rate limits).
     const STAGGER_MS = 500;
@@ -256,6 +280,7 @@ export class TriageOrchestrator {
             config,
             onEvent: (event) => onEvent?.(item.fingerprint, event),
             graphClient,
+            graphContext: graphContexts?.get(item.fingerprint) ?? null,
           })
             .then((result) => {
               onResult(item.fingerprint, result);
