@@ -61,8 +61,8 @@ export function createTools(config: ToolConfig): ToolSet {
         "Deliver your final triage verdict. Call this when you have enough evidence. " +
         "REQUIRED: sink_line_quoted must be a verbatim ≥20-char substring of the actual " +
         "sink line as it appears in a read tool output (NOT your paraphrase). " +
-        "REQUIRED for true_positive: attacker_payload must be a concrete attacker input " +
-        "(e.g. '?id[$ne]=1', '<script>alert(1)</script>', '; rm -rf /'). " +
+        "REQUIRED for true_positive: attacker_payload must be concrete attacker input " +
+        "bytes that exploit the specific sink. " +
         "Verdicts that fail these requirements are auto-downgraded to needs_review.",
       inputSchema: TriageVerdictSchema,
       execute: async (args) => JSON.stringify(args),

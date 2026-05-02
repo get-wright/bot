@@ -54,16 +54,9 @@ Your verdict tool call MUST include:
 - \`sink_line_quoted\`: a verbatim ≥20-character substring of the sink line, copied
   exactly from a read tool output. Not your paraphrase. If you cannot quote the sink
   line, you have not read it — read it now or use needs_review.
-- \`attacker_payload\` (for true_positive only): the concrete attacker input that
-  triggers the dangerous behavior. Examples by category:
-    - NoSQL injection: \`?id[$ne]=1\`, \`{"$where": "this"}\`
-    - SQL injection: \`' OR 1=1--\`
-    - XSS: \`<script>alert(1)</script>\`
-    - Command injection: \`; rm -rf /\`, \`$(whoami)\`
-    - Path traversal: \`../../etc/passwd\`
-    - SSRF: \`http://169.254.169.254/latest/meta-data\`
-  If you cannot construct a payload that exploits the finding, the verdict is not
-  true_positive — choose false_positive (with proof) or needs_review.
+- \`attacker_payload\` (for true_positive only): the concrete attacker input bytes
+  that exploit this specific sink. If you cannot construct such bytes, the verdict
+  is not true_positive — choose false_positive (with proof) or needs_review.
 
 These checks run post-hoc. A verdict that fails them is auto-downgraded to
 needs_review with a note in the reasoning.

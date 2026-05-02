@@ -36,8 +36,7 @@ export const TriageVerdictSchema = z.object({
     .string()
     .default("")
     .describe(
-      "Concrete attacker input that exploits this finding (e.g. '?id[$ne]=1' for NoSQLi, " +
-      "'<script>alert(1)</script>' for XSS, '; rm -rf /' for cmd injection). " +
+      "Concrete attacker input bytes that exploit this finding. " +
       "Required if verdict=true_positive. Use 'N/A' only if you can prove non-exploitability."
     ),
 });
