@@ -3,7 +3,6 @@ import { resolve } from "node:path";
 import type { Finding } from "../models/finding.js";
 import type { TriageVerdict } from "../models/verdict.js";
 import type { AgentEvent } from "../models/events.js";
-import type { MemoryStore, CachedRecord } from "../../infra/memory/store.js";
 import type { AppConfig } from "../../cli/config.js";
 import type { AgentLoopResult } from "../agent/loop.js";
 import type { FollowUpExchange } from "../agent/follow-up.js";
@@ -30,8 +29,6 @@ export interface FindingState {
   entry: FindingEntry;
   finding: Finding;
   events: AgentEvent[];
-  verdict?: TriageVerdict;
-  cachedAt?: string;
 }
 
 export interface FilteredFinding {
@@ -75,12 +72,6 @@ export interface TriageBatchOpts {
 }
 
 export class TriageOrchestrator {
-  private memory: MemoryStore;
-
-  constructor(memory: MemoryStore) {
-    this.memory = memory;
-  }
-
   loadFindings(path: string): LoadResult {
     const filePath = resolve(path);
     const raw = JSON.parse(readFileSync(filePath, "utf-8"));
@@ -97,21 +88,16 @@ export class TriageOrchestrator {
       }
 
       const fp = fingerprintFinding(f);
-      const cached = this.memory.lookupCached(fp);
-      const events = synthesizeCachedEvents(cached);
-
       active.push({
         entry: {
           fingerprint: fp,
           ruleId: f.check_id,
           fileLine: `${f.path}:${f.start.line}`,
           severity: f.extra.severity,
-          status: (cached?.verdict.verdict ?? "pending") as FindingStatus,
+          status: "pending",
         },
         finding: f,
-        events,
-        verdict: cached?.verdict,
-        cachedAt: cached?.updated_at,
+        events: [],
       });
     }
 
@@ -119,10 +105,9 @@ export class TriageOrchestrator {
   }
 
   async triage(opts: TriageOpts): Promise<AgentLoopResult> {
-    const { finding, fingerprint, config, onEvent, graphClient, graphContext } = opts;
-    const memoryHints = this.memory.getHints(finding.check_id, fingerprint);
+    const { finding, config, onEvent, graphClient, graphContext } = opts;
 
-    const result = await runAgentLoop({
+    return runAgentLoop({
       finding,
       projectRoot: process.cwd(),
       provider: config.provider,
@@ -130,28 +115,12 @@ export class TriageOrchestrator {
       maxSteps: config.maxSteps,
       allowBash: config.allowBash,
       onEvent,
-      memoryHints,
       apiKey: config.apiKey,
       baseUrl: config.baseUrl,
       reasoningEffort: config.reasoningEffort,
       graphClient,
       graphContext,
     });
-
-    this.memory.store({
-      fingerprint,
-      check_id: finding.check_id,
-      path: finding.path,
-      verdict: result.verdict.verdict,
-      reasoning: result.verdict.reasoning,
-      key_evidence: result.verdict.key_evidence,
-      suggested_fix: result.verdict.suggested_fix,
-      tool_calls: result.toolCalls,
-      input_tokens: result.inputTokens,
-      output_tokens: result.outputTokens,
-    });
-
-    return result;
   }
 
   async run(config: AppConfig): Promise<void> {
@@ -162,43 +131,22 @@ export class TriageOrchestrator {
       process.exit(1);
     }
 
-    const writer = new OutputWriter(config.outputPath, {
-      provider: config.provider,
-      model: config.model,
-      effort: config.reasoningEffort,
-    });
+    const writer = new OutputWriter(
+      config.outputPath,
+      { provider: config.provider, model: config.model, effort: config.reasoningEffort },
+      resolve(config.findingsPath),
+    );
 
     for (const f of filtered) {
       const fp = fingerprintFinding(f.finding);
       console.log(JSON.stringify({ type: "filtered", fingerprint: fp, rule: f.finding.check_id, reason: f.reason }));
     }
 
-    // 1. Emit cached findings directly without re-auditing
-    const fresh: { finding: Finding; fingerprint: string }[] = [];
-    for (const state of active) {
-      if (state.verdict) {
-        const cachedRecord = this.memory.lookupCached(state.entry.fingerprint);
-        writer.append({
-          finding: state.finding,
-          verdict: state.verdict,
-          tool_calls: cachedRecord?.tool_calls ?? [],
-          input_tokens: cachedRecord?.input_tokens ?? 0,
-          output_tokens: cachedRecord?.output_tokens ?? 0,
-          cached: true,
-          audited_at: state.cachedAt ?? cachedRecord?.updated_at ?? new Date().toISOString(),
-        });
-      } else {
-        fresh.push({ finding: state.finding, fingerprint: state.entry.fingerprint });
-      }
-    }
+    const fresh: { finding: Finding; fingerprint: string }[] = active.map((s) => ({
+      finding: s.finding,
+      fingerprint: s.entry.fingerprint,
+    }));
 
-    if (fresh.length === 0) {
-      console.error("All findings already cached; no fresh audits required.");
-      writer.flush();
-      return;
-    }
-
-    // 2. Triage fresh findings via batch
     const graphClient: GraphClient | null = await maybeCreateGraphClient(process.cwd());
     if (graphClient) {
       console.error("[graph] code-review-graph integration active");
@@ -231,7 +179,7 @@ export class TriageOrchestrator {
         onResult: (fingerprint, result) => {
           const item = fresh.find((x) => x.fingerprint === fingerprint);
           if (!item) return;
-          writer.append(toOutputRow(item.finding, result, false, new Date().toISOString()));
+          writer.append(toOutputRow(item.finding, item.fingerprint, result, new Date().toISOString()));
         },
         onEvent: (fingerprint, event) => {
           console.log(formatEvent(event, fingerprint));
@@ -339,35 +287,21 @@ export class TriageOrchestrator {
 
 function toOutputRow(
   finding: Finding,
+  fingerprint: string,
   result: TriageResult,
-  cached: boolean,
   auditedAt: string,
 ): OutputRow {
   return {
-    finding,
+    ref: {
+      fingerprint,
+      check_id: finding.check_id,
+      path: finding.path,
+      line: finding.start.line,
+    },
     verdict: result.verdict,
     tool_calls: result.toolCalls.map((t) => ({ tool: t.tool, args: t.args })),
     input_tokens: result.inputTokens,
     output_tokens: result.outputTokens,
-    cached,
     audited_at: auditedAt,
   };
-}
-
-function synthesizeCachedEvents(cached: CachedRecord | null): AgentEvent[] {
-  if (!cached) return [];
-  const events: AgentEvent[] = [];
-  for (const tc of cached.tool_calls) {
-    events.push({ type: "tool_start", tool: tc.tool, args: tc.args });
-  }
-  events.push({ type: "verdict", verdict: cached.verdict });
-  if (cached.input_tokens > 0 || cached.output_tokens > 0) {
-    events.push({
-      type: "usage",
-      inputTokens: cached.input_tokens,
-      outputTokens: cached.output_tokens,
-      totalTokens: cached.input_tokens + cached.output_tokens,
-    });
-  }
-  return events;
 }

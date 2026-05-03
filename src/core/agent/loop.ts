@@ -23,7 +23,6 @@ export interface AgentLoopConfig {
   maxSteps: number;
   allowBash: boolean;
   onEvent: (event: AgentEvent) => void;
-  memoryHints: string[];
   apiKey?: string;
   baseUrl?: string;
   reasoningEffort?: ReasoningEffort;
@@ -131,7 +130,7 @@ function extractErrorMessage(err: unknown): string {
 }
 
 export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopResult> {
-  const { finding, projectRoot, provider, model: modelId, maxSteps, allowBash, onEvent, memoryHints } = config;
+  const { finding, projectRoot, provider, model: modelId, maxSteps, allowBash, onEvent } = config;
 
   log.info("agent", `Starting triage: ${finding.check_id} at ${finding.path}:${finding.start.line}`);
   log.debug("agent", "Config", { provider, model: modelId, maxSteps, allowBash, reasoningEffort: config.reasoningEffort });
@@ -155,19 +154,13 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
   // Capture the model's text output during investigation — used as reasoning
   // fallback if the model returns a partial verdict from generateObject.
   let accumulatedText = "";
-  // Capture tool calls and token usage for persistence, so cached findings
-  // can show what was read and how many tokens were used.
+  // Capture tool calls and token usage for inclusion in findings-out.json.
   const capturedToolCalls: { tool: string; args: Record<string, unknown> }[] = [];
   const capturedReadOutputs: string[] = [];
   let capturedInputTokens = 0;
   let capturedOutputTokens = 0;
   // Track tool call start times for duration measurement
   const toolStartTimes = new Map<string, number>();
-
-  const systemPromptParts = [SYSTEM_PROMPT];
-  if (memoryHints.length > 0) {
-    systemPromptParts.push(`## Historical Context\n${memoryHints.map((h) => `- ${h}`).join("\n")}`);
-  }
 
   const userMessage = formatFindingMessage(finding, {
     graphAvailable: !!config.graphClient,
@@ -178,7 +171,7 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
     ? (resolveProviderOptions(config.provider, config.reasoningEffort) as Parameters<typeof streamText>[0]["providerOptions"])
     : undefined;
 
-  const systemPrompt = systemPromptParts.join("\n\n");
+  const systemPrompt = SYSTEM_PROMPT;
 
   const result = streamText({
     model: languageModel,

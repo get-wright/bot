@@ -1,10 +1,6 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { resolve, join } from "node:path";
-import { mkdtempSync, rmSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { describe, it, expect, vi } from "vitest";
+import { resolve } from "node:path";
 import { TriageOrchestrator } from "../../../src/core/triage/orchestrator.js";
-import { MemoryStore } from "../../../src/infra/memory/store.js";
-import { fingerprintFinding } from "../../../src/core/parser/semgrep.js";
 import type { Finding } from "../../../src/core/models/finding.js";
 import type { AppConfig } from "../../../src/cli/config.js";
 
@@ -25,16 +21,11 @@ function makeMinimalFinding(): Finding {
 }
 
 describe("TriageOrchestrator", () => {
-  function createOrchestrator() {
-    const memory = new MemoryStore(":memory:");
-    return { orchestrator: new TriageOrchestrator(memory), memory };
-  }
-
   describe("loadFindings", () => {
     const fixturePath = resolve(import.meta.dirname, "../../fixtures/semgrep-output.json");
 
     it("parses and classifies findings from a file", () => {
-      const { orchestrator } = createOrchestrator();
+      const orchestrator = new TriageOrchestrator();
       const result = orchestrator.loadFindings(fixturePath);
 
       expect(result.total).toBeGreaterThan(0);
@@ -47,43 +38,15 @@ describe("TriageOrchestrator", () => {
       }
     });
 
-    it("hydrates cached verdicts from memory", () => {
-      const { orchestrator, memory } = createOrchestrator();
-
-      const first = orchestrator.loadFindings(fixturePath);
-      const fp = first.active[0]!.entry.fingerprint;
-      const finding = first.active[0]!.finding;
-
-      memory.store({
-        fingerprint: fp,
-        check_id: finding.check_id,
-        path: finding.path,
-        verdict: "false_positive",
-        reasoning: "test reasoning",
-        key_evidence: ["evidence1"],
-        tool_calls: [{ tool: "grep", args: { pattern: "test" } }],
-        input_tokens: 100,
-        output_tokens: 50,
-      });
-
-      const second = orchestrator.loadFindings(fixturePath);
-      const cached = second.active.find((s) => s.entry.fingerprint === fp)!;
-      expect(cached.verdict?.verdict).toBe("false_positive");
-      expect(cached.cachedAt).toBeTruthy();
-      expect(cached.entry.status).toBe("false_positive");
-      expect(cached.events.length).toBeGreaterThan(0);
-      expect(cached.events.some((e) => e.type === "verdict")).toBe(true);
-    });
-
     it("throws on nonexistent file", () => {
-      const { orchestrator } = createOrchestrator();
+      const orchestrator = new TriageOrchestrator();
       expect(() => orchestrator.loadFindings("/nonexistent/file.json")).toThrow();
     });
   });
 
   describe("triageBatch", () => {
     it("runs findings concurrently up to the limit", async () => {
-      const { orchestrator } = createOrchestrator();
+      const orchestrator = new TriageOrchestrator();
       let maxConcurrent = 0;
       let currentConcurrent = 0;
 
@@ -123,7 +86,6 @@ describe("TriageOrchestrator", () => {
         headless: false,
         allowBash: false,
         maxSteps: 15,
-        memoryDb: ":memory:",
         concurrency: 3,
       };
 
@@ -144,7 +106,7 @@ describe("TriageOrchestrator", () => {
     });
 
     it("respects abort signal to stop dispatching new items", async () => {
-      const { orchestrator } = createOrchestrator();
+      const orchestrator = new TriageOrchestrator();
       let callCount = 0;
 
       orchestrator.triage = vi.fn(async () => {
@@ -174,7 +136,7 @@ describe("TriageOrchestrator", () => {
 
       const config = {
         findingsPath: fixturePath, provider: "openai", model: "gpt-4o",
-        headless: false, allowBash: false, maxSteps: 15, memoryDb: ":memory:", concurrency: 2,
+        headless: false, allowBash: false, maxSteps: 15, concurrency: 2,
       };
 
       const abortController = new AbortController();
@@ -194,13 +156,7 @@ describe("TriageOrchestrator", () => {
 
 describe("TriageOrchestrator.triageBatch — error rows", () => {
   it("emits error result via onResult when triage throws", async () => {
-    const memory = {
-      lookupCached: () => null,
-      store: vi.fn(),
-      close: () => {},
-      getHints: () => [],
-    } as never;
-    const orch = new TriageOrchestrator(memory);
+    const orch = new TriageOrchestrator();
 
     vi.spyOn(orch, "triage" as never).mockRejectedValue(new Error("provider 500"));
 
@@ -214,8 +170,7 @@ describe("TriageOrchestrator.triageBatch — error rows", () => {
       headless: true,
       allowBash: false,
       maxSteps: 15,
-      memoryDb: ":memory:",
-    };
+    } as AppConfig;
 
     const results: Array<{ fp: string; result: unknown }> = [];
     await orch.triageBatch({
@@ -231,88 +186,5 @@ describe("TriageOrchestrator.triageBatch — error rows", () => {
     const r = results[0]!.result as { verdict: { verdict: string; reasoning: string } };
     expect(r.verdict.verdict).toBe("error");
     expect(r.verdict.reasoning).toMatch(/provider 500/);
-  });
-});
-
-describe("TriageOrchestrator.run — cached findings", () => {
-  let workspace: string;
-  beforeEach(() => { workspace = mkdtempSync(join(tmpdir(), "sast-cached-")); });
-  afterEach(() => { rmSync(workspace, { recursive: true, force: true }); });
-
-  it("emits cached rows without invoking triage; fresh rows go through triage", async () => {
-    const findingsJson = {
-      version: "1.50.0",
-      results: [
-        { check_id: "rule-1", path: "a.ts", start: { line: 1, col: 0 }, end: { line: 1, col: 0 },
-          extra: { message: "m1", severity: "WARNING", metadata: { cwe: [] } } },
-        { check_id: "rule-2", path: "b.ts", start: { line: 1, col: 0 }, end: { line: 1, col: 0 },
-          extra: { message: "m2", severity: "WARNING", metadata: { cwe: [] } } },
-      ],
-      errors: [], paths: { scanned: ["a.ts", "b.ts"] },
-    };
-    const findingsPath = join(workspace, "findings.json");
-    writeFileSync(findingsPath, JSON.stringify(findingsJson));
-    writeFileSync(join(workspace, "a.ts"), "// a");
-    writeFileSync(join(workspace, "b.ts"), "// b");
-
-    // Compute the actual fingerprints used by the orchestrator (sha256 hash slice,
-    // not a "rule-1..."-prefixed string).
-    const fpRule1 = fingerprintFinding({
-      check_id: "rule-1", path: "a.ts",
-      start: { line: 1, col: 0, offset: 0 }, end: { line: 1, col: 0, offset: 0 },
-      extra: { message: "m1", severity: "WARNING", metadata: { cwe: [], confidence: "MEDIUM", category: "security", technology: [], owasp: [], vulnerability_class: [] }, lines: "", metavars: {} },
-    } as Finding);
-
-    const memory = {
-      lookupCached: vi.fn().mockImplementation((fp: string) => {
-        if (fp === fpRule1) {
-          return {
-            verdict: { verdict: "false_positive", reasoning: "prior audit", key_evidence: ["sanitizer"] },
-            tool_calls: [{ tool: "read", args: { path: "a.ts" } }],
-            input_tokens: 100, output_tokens: 50,
-            updated_at: "2026-04-01T00:00:00Z",
-          };
-        }
-        return null;
-      }),
-      store: vi.fn(),
-      getHints: () => [],
-      close: () => {},
-    } as never;
-
-    const orch = new TriageOrchestrator(memory);
-    const triageSpy = vi.spyOn(orch, "triage").mockResolvedValue({
-      verdict: { verdict: "true_positive", reasoning: "fresh", key_evidence: [] },
-      toolCalls: [{ tool: "grep", args: { pattern: "x" } }],
-      inputTokens: 200, outputTokens: 80,
-    } as never);
-
-    const outputPath = join(workspace, "out.json");
-    const cwdBefore = process.cwd();
-    process.chdir(workspace);
-    try {
-      await orch.run({
-        provider: "openai", model: "gpt-4o", apiKey: "k",
-        findingsPath, outputPath,
-        memoryDb: join(workspace, "mem.db"),
-        allowBash: false, maxSteps: 5, concurrency: 1,
-        baseUrl: undefined, reasoningEffort: undefined,
-        headless: true,
-      } as never);
-    } finally {
-      process.chdir(cwdBefore);
-    }
-
-    expect(triageSpy).toHaveBeenCalledTimes(1);
-
-    const out = JSON.parse(readFileSync(outputPath, "utf-8"));
-    expect(out.summary.total).toBe(2);
-    expect(out.summary.cached).toBe(1);
-    expect(out.findings).toHaveLength(2);
-    const cachedRow = out.findings.find((r: { cached: boolean }) => r.cached);
-    expect(cachedRow.verdict.verdict).toBe("false_positive");
-    expect(cachedRow.audited_at).toBe("2026-04-01T00:00:00Z");
-    const freshRow = out.findings.find((r: { cached: boolean }) => !r.cached);
-    expect(freshRow.verdict.verdict).toBe("true_positive");
   });
 });

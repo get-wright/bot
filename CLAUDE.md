@@ -23,11 +23,11 @@ bun build src/index.ts --compile --outfile sast-triage  # compile binary
 ## Architecture
 
 ```
-Semgrep JSON → Parser → Pre-filter → Agent Loop (LLM + tools) → Verdict → Memory
+Semgrep JSON → Parser → Pre-filter → Agent Loop (LLM + tools) → Verdict → Output
                 │            │              │                       │
           Finding model  filter out:    streamText + tools    TriageVerdict +
                          test files,    read/grep/glob/bash   tool_calls + tokens
-                         generated,     doom loop detection   → SQLite cache
+                         generated,     doom loop detection   → findings-out.json
                          INFO sev       prepareStep (force verdict)
                                         generateObject fallback (lenient schema)
                                         accumulatedText backfill
@@ -55,10 +55,9 @@ Unified reasoning effort control via `resolveProviderOptions(provider, effort)` 
 - `src/core/models/finding.ts` — Finding schema (Zod)
 - `src/core/models/verdict.ts` — Verdict schema (Zod, tolerant `key_evidence`)
 - `src/core/models/events.ts` — agent events including `permission_request`, `usage`, `followup_start`
-- `src/core/triage/orchestrator.ts` — `TriageOrchestrator` runs the headless flow (parse + prefilter + agent loop + cache + emit NDJSON)
+- `src/core/triage/orchestrator.ts` — `TriageOrchestrator` runs the headless flow (parse + prefilter + agent loop + emit NDJSON)
 - `src/infra/providers/registry.ts` — multi-provider resolution with optional apiKey/baseUrl
 - `src/infra/providers/reasoning.ts` — unified reasoning effort mapping across providers
-- `src/infra/memory/store.ts` — SQLite via `bun:sqlite` (binary) / `better-sqlite3` (Node). `lookupCached()` returns full audit record. Idempotent schema migrations.
 - `src/infra/output/writer.ts` — NDJSON writer + consolidated `findings-out.json`
 - `src/infra/output/reporter.ts` — formats agent events for stderr stream
 - `src/infra/tracing.ts` — LangSmith tracing init
@@ -75,7 +74,7 @@ Unified reasoning effort control via `resolveProviderOptions(provider, effort)` 
 
 - **AI SDK v5 uses `inputSchema`** not `parameters` in `tool()` calls
 - **OpenRouter must use `.chat(model)`** not `provider(model)` — the default hits the Responses API (`/responses`) which OpenRouter doesn't support
-- **`bun:sqlite` vs `better-sqlite3`** — runtime detection via `typeof globalThis.Bun`. Binary uses bun:sqlite, vitest uses better-sqlite3.
+- **`bun:sqlite` vs `better-sqlite3`** — graph DB sparseness check uses `bun:sqlite` in the Bun-compiled binary, `better-sqlite3` under Node/vitest. Runtime detection via `typeof globalThis.Bun`.
 - **Tab characters in tool output** — `\t` counts as 1 char but renders as 8; expand tabs to 4 spaces before truncating
 - **Verdict schema tolerance** — some models (Nemotron, GLM) send `key_evidence` as string or JSON-stringified array `'["a","b"]'`; Zod union handles all shapes
 - **`prepareStep` for forced verdict is model-dependent** — strong models comply; weak models (gpt-oss-120b, nemotron, glm-4.7) ignore `toolChoice`. Two failure modes: (1) no tool call, stream ends → `generateObject` fallback recovers verdict from conversation history; (2) tool call with empty fields → `accumulatedText` backfill from text-delta stream.
@@ -85,7 +84,6 @@ Unified reasoning effort control via `resolveProviderOptions(provider, effort)` 
 - **Read tool metadata footers** — every read ends with `[End of file — N lines total]` or `[Showing lines X-Y of N — use offset=Y+1 to continue]` so the agent knows where it is
 - **Long-line truncation in read** — lines >2000 chars clipped with `… [line truncated, N chars total]` (minified JS, SVG data URIs, base64)
 - **Per-provider key persistence** — `savedApiKeys` on ProjectConfig stores all provider keys; `detectedProviders()` checks env vars OR saved keys
-- **Cached findings include tool calls + tokens + timestamp** — `lookupCached()` returns `{verdict, tool_calls, input_tokens, output_tokens, updated_at}`.
 - **Read registry dedups by content hash + range coverage** — `runAgentLoop` allocates a per-call `ReadRegistry`; the read tool stubs subsequent reads of the same file when the requested `[offset, offset+limit]` range is already covered. Critical: the gate uses raw `input.offset` / `input.limit` (not destructure defaults), so a partial read does NOT block a later full-file read. See `src/core/agent/tools/read.ts`.
 - **Read tool path-not-found suggestions** — when a path doesn't exist, the read tool calls `rg --files --glob '**/<basename>'` (5s timeout, ignores `node_modules`/`.git`/`dist`/`__pycache__`/`venv`/`build`) and appends up to 5 closest matches. If `rg` is missing or times out, degrades to plain "File not found".
 - **Graph integration is gated** — `code-review-graph` MCP only attaches when `SAST_USE_GRAPH=1` env var is set AND the `code-review-graph` binary is on PATH. Otherwise `graphClient` is `null` and `query_graph` / `search_symbol` tools are NOT registered.

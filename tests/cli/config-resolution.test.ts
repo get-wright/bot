@@ -8,7 +8,7 @@ import { ProjectConfig } from "../../src/cli/project-config.js";
 const ENV_KEYS = [
   "SAST_PROVIDER", "SAST_MODEL", "SAST_API_KEY", "SAST_BASE_URL",
   "SAST_EFFORT", "SAST_MAX_STEPS", "SAST_CONCURRENCY", "SAST_ALLOW_BASH",
-  "SAST_FINDINGS", "SAST_OUTPUT", "SAST_MEMORY_DB",
+  "SAST_FINDINGS", "SAST_OUTPUT",
   "OPENAI_API_KEY", "ANTHROPIC_API_KEY",
 ];
 

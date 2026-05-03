@@ -2,24 +2,27 @@
 import { readFileSync } from "node:fs";
 
 interface Row {
+  ref?: { fingerprint?: string };
   fingerprint?: string;
   finding?: { fingerprint?: string };
   input_tokens?: number;
   output_tokens?: number;
   tool_calls?: unknown[];
-  cached?: boolean;
 }
 
 function loadRows(path: string): Row[] {
   const txt = readFileSync(path, "utf8");
   const trimmed = txt.trim();
   if (trimmed.startsWith("[")) return JSON.parse(trimmed);
+  if (trimmed.startsWith("{")) {
+    const doc = JSON.parse(trimmed);
+    if (Array.isArray(doc.findings)) return doc.findings;
+  }
   return trimmed.split("\n").filter(Boolean).map(l => JSON.parse(l));
 }
 
 function summarize(rows: Row[]) {
-  const fresh = rows.filter(r => !r.cached);
-  return fresh.reduce(
+  return rows.reduce(
     (acc, r) => ({
       input_tokens: acc.input_tokens + (r.input_tokens ?? 0),
       output_tokens: acc.output_tokens + (r.output_tokens ?? 0),

@@ -51,7 +51,6 @@ USER sastuser
 
 ENV SAST_FINDINGS=/work/findings.json \
     SAST_OUTPUT=/work/findings-out.json \
-    SAST_MEMORY_DB=/work/.sast-triage/memory.db \
     SAST_USE_GRAPH=1
 
 ENTRYPOINT ["/usr/local/bin/sast-triage"]

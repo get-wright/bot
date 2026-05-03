@@ -4,7 +4,6 @@ import { resolve } from "node:path";
 import { Command } from "commander";
 import { resolveConfig, validateConfig } from "./config.js";
 import { ProjectConfig } from "./project-config.js";
-import { MemoryStore } from "../infra/memory/store.js";
 import { TriageOrchestrator } from "../core/triage/orchestrator.js";
 import { initLogger, log } from "../infra/logger.js";
 import { initTracing, hasLangSmithConfig } from "../infra/tracing.js";
@@ -22,7 +21,7 @@ export function run(): void {
   program
     .name("sast-triage")
     .description("Agentic SAST finding triage via LLM-driven codebase exploration (headless)")
-    .version("0.1.6")
+    .version("0.1.7")
     .argument("[findings]", "Path to Semgrep JSON output file (or set SAST_FINDINGS)")
     .option("--provider <provider>", "LLM provider (openai, anthropic, google, openrouter, fpt)")
     .option("--model <model>", "Model ID")
@@ -30,7 +29,6 @@ export function run(): void {
     .option("--base-url <url>", "Override provider base URL")
     .option("--allow-bash", "Enable bash tool for agent")
     .option("--max-steps <n>", "Max agent loop steps per finding")
-    .option("--memory-db <path>", "SQLite memory DB path")
     .option("--effort <level>", "Reasoning effort: low, medium, high")
     .option("--concurrency <n>", "Max concurrent agent loops for batch audit")
     .option("--output <path>", "Consolidated findings-out.json path")
@@ -71,7 +69,6 @@ export function run(): void {
         baseUrl: opts.baseUrl,
         allowBash: opts.allowBash,
         maxSteps,
-        memoryDb: opts.memoryDb,
         concurrency,
         outputPath: opts.output,
         reasoningEffort: opts.effort,
@@ -80,15 +77,8 @@ export function run(): void {
       // validateConfig exits on missing required fields; returns AppConfig.
       const config = validateConfig(resolved);
 
-      const memoryDbPath = resolve(config.memoryDb);
-      const memory = new MemoryStore(memoryDbPath);
-      const orchestrator = new TriageOrchestrator(memory);
-
-      try {
-        await orchestrator.run(config);
-      } finally {
-        memory.close();
-      }
+      const orchestrator = new TriageOrchestrator();
+      await orchestrator.run(config);
     });
 
   program.parse();
