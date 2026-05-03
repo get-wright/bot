@@ -23,7 +23,6 @@ export interface ResolvedConfig {
   baseUrl: string | undefined;
   findingsPath: string | undefined;
   outputPath: string;
-  memoryDb: string;
   allowBash: boolean;
   maxSteps: number;
   concurrency: number;
@@ -49,7 +48,6 @@ export interface ResolveOpts {
   baseUrl?: string;
   allowBash?: boolean;
   maxSteps?: number;
-  memoryDb?: string;
   concurrency?: number;
   outputPath?: string;
   reasoningEffort?: string;
@@ -78,7 +76,6 @@ export function resolveConfig(opts: ResolveOpts, toml?: ProjectConfig): Resolved
     baseUrl: opts.baseUrl ?? env.SAST_BASE_URL ?? toml?.baseUrl,
     findingsPath: opts.findingsPath ?? env.SAST_FINDINGS ?? defaultFindingsPath(),
     outputPath: opts.outputPath ?? env.SAST_OUTPUT ?? defaultOutputPath(),
-    memoryDb: opts.memoryDb ?? env.SAST_MEMORY_DB ?? toml?.memoryDbPath ?? defaultMemoryDb(),
     allowBash: opts.allowBash ?? bool(env.SAST_ALLOW_BASH) ?? false,
     maxSteps: opts.maxSteps ?? num(env.SAST_MAX_STEPS) ?? 20,
     concurrency: opts.concurrency ?? num(env.SAST_CONCURRENCY) ?? toml?.concurrency ?? 1,
@@ -93,9 +90,6 @@ function defaultOutputPath(): string {
 function defaultFindingsPath(): string | undefined {
   if (existsSync("/work/findings.json")) return "/work/findings.json";
   return undefined;
-}
-function defaultMemoryDb(): string {
-  return existsSync("/work") ? "/work/.sast-triage/memory.db" : ".sast-triage/memory.db";
 }
 
 /**

@@ -1,10 +1,16 @@
 import { writeFileSync, accessSync, constants, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import type { Finding } from "../../core/models/finding.js";
 import type { VerdictValue } from "../../core/models/verdict.js";
 
+export interface OutputRef {
+  fingerprint: string;
+  check_id: string;
+  path: string;
+  line: number;
+}
+
 export interface OutputRow {
-  finding: Finding;
+  ref: OutputRef;
   /**
    * Output verdict — accepts the LLM-emitted verdicts plus "error" for runner failures.
    * Runner-level superset of VerdictValue; the LLM-facing schema does not include "error".
@@ -13,7 +19,6 @@ export interface OutputRow {
   tool_calls: Array<{ tool: string; args: Record<string, unknown> }>;
   input_tokens: number;
   output_tokens: number;
-  cached: boolean;
   audited_at: string;
 }
 
@@ -29,12 +34,11 @@ interface OutputSummary {
   false_positive: number;
   needs_review: number;
   error: number;
-  cached: number;
 }
 
 interface OutputDocument {
-  schema_version: 1;
   generated_at: string;
+  findings_source: string;
   config: OutputConfig;
   summary: OutputSummary;
   findings: OutputRow[];
@@ -43,7 +47,11 @@ interface OutputDocument {
 export class OutputWriter {
   private rows: OutputRow[] = [];
 
-  constructor(private readonly path: string, private readonly config: OutputConfig) {
+  constructor(
+    private readonly path: string,
+    private readonly config: OutputConfig,
+    private readonly findingsSource: string,
+  ) {
     const dir = dirname(path);
     try {
       accessSync(dir, constants.W_OK);
@@ -63,11 +71,10 @@ export class OutputWriter {
       false_positive: this.rows.filter((r) => r.verdict.verdict === "false_positive").length,
       needs_review: this.rows.filter((r) => r.verdict.verdict === "needs_review").length,
       error: this.rows.filter((r) => r.verdict.verdict === "error").length,
-      cached: this.rows.filter((r) => r.cached).length,
     };
     const doc: OutputDocument = {
-      schema_version: 1,
       generated_at: new Date().toISOString(),
+      findings_source: this.findingsSource,
       config: this.config,
       summary,
       findings: this.rows,

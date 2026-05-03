@@ -21,7 +21,6 @@ export class ProjectConfig {
   model = "gpt-4o";
   apiKey: string | undefined;
   baseUrl: string | undefined;
-  memoryDbPath: string;
   reasoningEffort: ReasoningEffort | undefined;
   allowedPaths: string[] = [];
   concurrency = 1;
@@ -29,7 +28,6 @@ export class ProjectConfig {
 
   constructor(workspace: string) {
     this.workspace = workspace;
-    this.memoryDbPath = join(workspace, ".sast-triage", "memory.db");
     this.load();
   }
 
@@ -77,11 +75,6 @@ export class ProjectConfig {
           this.reasoningEffort = effort;
         }
       }
-    }
-
-    const memory = data.memory as Record<string, unknown> | undefined;
-    if (memory && typeof memory.db_path === "string") {
-      this.memoryDbPath = join(this.workspace, memory.db_path);
     }
 
     const workspace = data.workspace as Record<string, unknown> | undefined;

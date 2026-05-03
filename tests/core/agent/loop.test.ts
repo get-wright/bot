@@ -33,7 +33,6 @@ describe("runAgentLoop", () => {
       maxSteps: 2,
       allowBash: false,
       onEvent: (event) => events.push(event),
-      memoryHints: [],
     };
     expect(config.maxSteps).toBe(2);
     expect(config.allowBash).toBe(false);

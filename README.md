@@ -74,18 +74,17 @@ Set via environment variable or the `--api-key` flag:
 ## How It Works
 
 ```
-Semgrep JSON → Parse → Pre-filter → Agent Loop → Verdict → Memory
+Semgrep JSON → Parse → Pre-filter → Agent Loop → Verdict
 ```
 
 1. **Parse** — Extract findings from Semgrep JSON, fingerprint each one, classify as taint/pattern.
-2. **Pre-filter** — Remove test files, generated code, and INFO severity. Previously cached verdicts are preserved (they're completed work, not noise).
+2. **Pre-filter** — Remove test files, generated code, and INFO severity.
 3. **Agent Loop** — The LLM gets the finding + tools, investigates autonomously:
    - `read` — read source files with line numbers
    - `grep` — regex search across codebase
    - `glob` — find files by pattern
    - `bash` — run read-only shell commands (optional, `--allow-bash`)
    - `verdict` — deliver final triage decision (ends investigation)
-4. **Memory** — Cache verdicts in SQLite. On next run, cached findings reload with their full audit history.
 
 ### Pre-filter Rules
 
@@ -122,9 +121,6 @@ reasoning_effort = "medium"
 
 [provider.api_keys]
 openrouter = "sk-or-..."
-
-[memory]
-db_path = ".sast-triage/memory.db"
 ```
 
 Add `.sast-triage.toml` to your `.gitignore` (it may contain API keys).
@@ -175,8 +171,6 @@ bun run src/index.ts findings.json --provider openai --model gpt-4o
 │       ├── providers/
 │       │   ├── registry.ts   # multi-provider resolution
 │       │   └── reasoning.ts  # reasoning effort mapping
-│       ├── memory/
-│       │   └── store.ts      # SQLite verdict cache
 │       ├── output/
 │       │   ├── writer.ts     # NDJSON + findings-out.json
 │       │   └── reporter.ts   # stderr event formatter
