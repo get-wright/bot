@@ -134,7 +134,7 @@ export class TriageOrchestrator {
     const writer = new OutputWriter(
       config.outputPath,
       { provider: config.provider, model: config.model, effort: config.reasoningEffort },
-      config.findingsPath,
+      resolve(config.findingsPath),
     );
 
     for (const f of filtered) {

@@ -154,8 +154,7 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
   // Capture the model's text output during investigation — used as reasoning
   // fallback if the model returns a partial verdict from generateObject.
   let accumulatedText = "";
-  // Capture tool calls and token usage for persistence, so cached findings
-  // can show what was read and how many tokens were used.
+  // Capture tool calls and token usage for inclusion in findings-out.json.
   const capturedToolCalls: { tool: string; args: Record<string, unknown> }[] = [];
   const capturedReadOutputs: string[] = [];
   let capturedInputTokens = 0;
