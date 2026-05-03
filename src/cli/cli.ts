@@ -21,7 +21,7 @@ export function run(): void {
   program
     .name("sast-triage")
     .description("Agentic SAST finding triage via LLM-driven codebase exploration (headless)")
-    .version("0.1.6")
+    .version("0.1.7")
     .argument("[findings]", "Path to Semgrep JSON output file (or set SAST_FINDINGS)")
     .option("--provider <provider>", "LLM provider (openai, anthropic, google, openrouter, fpt)")
     .option("--model <model>", "Model ID")
