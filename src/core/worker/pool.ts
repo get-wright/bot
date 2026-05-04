@@ -23,6 +23,10 @@ export interface WorkerPoolOptions {
   onEvent: (fingerprint: string, event: AgentEvent) => void;
   onResult: (fingerprint: string, result: TriageResult) => void;
   workerRestart?: boolean;
+  // Optional directory to write per-worker debug logs into. When set, each
+  // worker's init message receives `<logBaseDir>/debug-worker-<id>.log`,
+  // keeping concurrent appendFileSync calls from interleaving across workers.
+  logBaseDir?: string;
 }
 
 interface Slot {
@@ -92,11 +96,16 @@ export class WorkerPool {
     };
     this.slots[id] = slot;
     this.attach(slot);
+    const logPath = this.opts.logBaseDir
+      ? `${this.opts.logBaseDir}/debug-worker-${id}.log`
+      : undefined;
     worker.postMessage({
       kind: "init",
+      workerId: id,
       serializedConfig: this.opts.serializedConfig,
       tracingEnabled: this.opts.tracingEnabled,
       langsmithProject: this.opts.langsmithProject,
+      logPath,
     });
   }
 

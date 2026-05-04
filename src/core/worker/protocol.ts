@@ -19,9 +19,13 @@ export interface SerializedConfig {
 export type ToWorker =
   | {
       kind: "init";
+      workerId: number;
       serializedConfig: SerializedConfig;
       tracingEnabled: boolean;
       langsmithProject?: string;
+      // Absolute path to a per-worker debug log file. Undefined disables
+      // worker-side logging (main keeps its own `debug.log`).
+      logPath?: string;
     }
   | {
       kind: "task";

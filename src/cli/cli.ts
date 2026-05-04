@@ -46,8 +46,10 @@ export function run(): void {
     .option("--no-log", "Disable debug logging (enabled by default)")
     .option("--langsmith", "Enable LangSmith tracing (or set LANGSMITH_TRACING=true)")
     .action(async (findingsPath: string | undefined, opts: any) => {
+      let logBaseDir: string | undefined;
       if (opts.log !== false && process.env.SAST_LOG !== "0") {
-        const logPath = resolve(process.cwd(), ".sast-triage", "debug.log");
+        logBaseDir = resolve(process.cwd(), ".sast-triage");
+        const logPath = resolve(logBaseDir, "debug.log");
         initLogger(logPath);
         log.info("cli", "Debug logging enabled", { logPath });
       }
@@ -94,7 +96,7 @@ export function run(): void {
       const config = validateConfig(resolved);
 
       const orchestrator = new TriageOrchestrator();
-      await orchestrator.run(config, { tracingEnabled });
+      await orchestrator.run(config, { tracingEnabled, logBaseDir });
     });
 
   program.parse();

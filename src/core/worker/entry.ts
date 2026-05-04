@@ -3,9 +3,11 @@ declare const self: Worker;
 
 import type { ToWorker, FromWorker, SerializedConfig } from "./protocol.js";
 import { initTracing } from "../../infra/tracing.js";
+import { initLogger, log } from "../../infra/logger.js";
 import { WorkerGraphClient } from "./graph-stub.js";
 import { runAgentLoop } from "../agent/loop.js";
 
+let workerId = -1;
 let serializedConfig: SerializedConfig | null = null;
 let graphStub: WorkerGraphClient | null = null;
 let aborted = false;
@@ -52,8 +54,16 @@ self.onmessage = async (event: MessageEvent<ToWorker>) => {
   const msg = event.data;
   switch (msg.kind) {
     case "init": {
+      workerId = msg.workerId;
       serializedConfig = msg.serializedConfig;
       graphStub = new WorkerGraphClient(send);
+      // Per-worker debug log so concurrent appendFileSync calls don't
+      // interleave lines across workers in a single shared file. The main
+      // process owns its own `debug.log` separately.
+      if (msg.logPath) {
+        initLogger(msg.logPath);
+        log.info("worker", "init", { workerId, concurrency: msg.serializedConfig.concurrency });
+      }
       if (msg.tracingEnabled) {
         if (msg.langsmithProject) process.env.LANGSMITH_PROJECT = msg.langsmithProject;
         await initTracing();
