@@ -132,6 +132,16 @@ function extractErrorMessage(err: unknown): string {
 export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopResult> {
   // FUTURE: remove after Task 14 ships if a proper mock provider is added.
   if (process.env.SAST_TEST_AGENT_STUB === "1") {
+    if (config.finding.check_id === "__crash_exit__") {
+      // Bun 1.3.x Workers defer process.exit, so pair it with a synchronous timer
+      // throw that fires outside the runFinding .catch() chain — this is the only
+      // reliable way to trigger the pool's crash-detection path (error event →
+      // fatal message → handleCrash) without resolving the promise first.
+      process.exit(1);
+      setTimeout(() => { throw new Error("simulated worker exit"); }, 0);
+      return new Promise<never>(() => {}) as unknown as AgentLoopResult;
+    }
+    if (config.finding.check_id === "__crash_throw__") throw new Error("simulated crash");
     config.onEvent?.({ type: "tool_call", tool: "noop", args: {} } as any);
     return {
       verdict: {
