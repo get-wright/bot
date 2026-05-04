@@ -16,7 +16,7 @@ RUN case "$TARGETARCH" in \
       arm64) BUN_TARGET=bun-linux-arm64 ;; \
       *) echo "unsupported arch: $TARGETARCH" >&2; exit 1 ;; \
     esac \
- && bun build src/index.ts \
+ && bun build src/index.ts src/core/worker/entry.ts \
       --compile \
       --target=${BUN_TARGET} \
       --outfile sast-triage \
