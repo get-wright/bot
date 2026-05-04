@@ -130,6 +130,23 @@ function extractErrorMessage(err: unknown): string {
 }
 
 export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopResult> {
+  // FUTURE: remove after Task 14 ships if a proper mock provider is added.
+  if (process.env.SAST_TEST_AGENT_STUB === "1") {
+    config.onEvent?.({ type: "tool_call", tool: "noop", args: {} } as any);
+    return {
+      verdict: {
+        verdict: "false_positive",
+        reasoning: "stub",
+        key_evidence: [],
+        sink_line_quoted: "",
+        attacker_payload: "",
+      },
+      toolCalls: [{ tool: "noop", args: {} } as any],
+      inputTokens: 1,
+      outputTokens: 1,
+    };
+  }
+
   const { finding, projectRoot, provider, model: modelId, maxSteps, allowBash, onEvent } = config;
 
   log.info("agent", `Starting triage: ${finding.check_id} at ${finding.path}:${finding.start.line}`);

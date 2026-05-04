@@ -83,7 +83,12 @@ self.onmessage = async (event: MessageEvent<ToWorker>) => {
     case "shutdown": {
       // Bun does not expose an explicit close event; main calls worker.terminate()
       // which fires close with code 0 (clean). Just exit.
+      // NOTE: process.exit() is not synchronous in Bun Workers — set aborted
+      // and return to prevent switch fall-through to the "task" case, and to
+      // block any subsequent messages from dispatching new work.
+      aborted = true;
       process.exit(0);
+      return;
     }
     case "task": {
       if (!serializedConfig || !graphStub) {

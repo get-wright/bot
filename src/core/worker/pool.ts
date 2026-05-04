@@ -70,6 +70,10 @@ export class WorkerPool {
     const allIdle = this.slots.every((s) => s.inFlight.size === 0);
     if (allIdle) {
       for (const s of this.slots) {
+        // Skip slots already marked for shutdown to avoid posting to a
+        // terminated worker (which throws InvalidStateError and would
+        // prevent resolveDone from being called).
+        if (s.expectedShutdown) continue;
         s.expectedShutdown = true;
         s.worker.postMessage({ kind: "shutdown" });
       }
