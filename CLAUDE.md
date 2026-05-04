@@ -15,7 +15,8 @@ bun install                                # install deps
 bunx vitest run                            # all tests (143, no network)
 bunx tsc --noEmit                          # type check
 bun build src/index.ts --compile --outfile sast-triage  # compile binary
-./sast-triage findings.json --provider openai --model gpt-4o  # NDJSON
+./sast-triage findings.json --provider openai --model gpt-4o  # NDJSON (positional)
+./sast-triage --input findings.json --provider openai         # equivalent via flag
 ./sast-triage --effort high                # reasoning effort
 ./sast-triage --no-log                     # disable debug logging
 ```
