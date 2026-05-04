@@ -22,7 +22,8 @@ export function run(): void {
     .name("sast-triage")
     .description("Agentic SAST finding triage via LLM-driven codebase exploration (headless)")
     .version("0.1.7")
-    .argument("[findings]", "Path to Semgrep JSON output file (or set SAST_FINDINGS)")
+    .argument("[findings]", "Path to Semgrep JSON file (or use --input / SAST_FINDINGS)")
+    .option("--input <path>", "Path to Semgrep JSON file (alias for positional arg, or set SAST_FINDINGS)")
     .option("--provider <provider>", "LLM provider (openai, anthropic, google, openrouter, fpt)")
     .option("--model <model>", "Model ID")
     .option("--api-key <key>", "API key (or set SAST_API_KEY / OPENAI_API_KEY / ...)")
@@ -60,9 +61,10 @@ export function run(): void {
 
       const concurrency = parseConcurrency(opts.concurrency);
       const maxSteps = opts.maxSteps !== undefined ? parseInt(opts.maxSteps, 10) : undefined;
+      const inputPath = opts.input ?? findingsPath;
 
       const resolved = resolveConfig({
-        findingsPath,
+        findingsPath: inputPath,
         provider: opts.provider,
         model: opts.model,
         apiKey: opts.apiKey,
