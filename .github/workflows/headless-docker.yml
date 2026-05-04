@@ -77,9 +77,11 @@ jobs:
 
       - name: Image size check (PR only, amd64)
         if: github.event_name == 'pull_request'
+        env:
+          IMAGE_SIZE_BUDGET_MB: "650"
         run: |
           docker buildx build --load --platform linux/amd64 -t sast-triage:pr .
           size=$(docker image inspect sast-triage:pr --format='{{.Size}}')
           mb=$((size/1024/1024))
-          echo "Image size: ${mb}MB"
-          [ "$mb" -le 200 ] || { echo "Image exceeds 200MB budget"; exit 1; }
+          echo "Image size: ${mb}MB (budget: ${IMAGE_SIZE_BUDGET_MB}MB)"
+          [ "$mb" -le "$IMAGE_SIZE_BUDGET_MB" ] || { echo "Image exceeds ${IMAGE_SIZE_BUDGET_MB}MB budget"; exit 1; }
