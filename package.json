@@ -3,14 +3,11 @@
   "version": "0.1.7",
   "description": "Agentic SAST finding triage via LLM-driven codebase exploration",
   "type": "module",
-  "bin": {
-    "sast-triage": "./dist/index.js"
-  },
   "scripts": {
-    "build": "tsc",
-    "dev": "tsx src/index.ts",
-    "test": "vitest run",
-    "test:watch": "vitest"
+    "build": "bun build src/index.ts src/core/worker/entry.ts --compile --outfile sast-triage",
+    "dev": "bun run src/index.ts",
+    "test": "bunx vitest run",
+    "test:watch": "bunx vitest"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^2.0.78",
@@ -27,7 +24,6 @@
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^24",
-    "tsx": "^4.21",
     "typescript": "^5.9",
     "vitest": "^3.0.0"
   }
