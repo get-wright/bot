@@ -42,7 +42,6 @@ export class WorkerPool {
   private opts: WorkerPoolOptions;
   private queue: Array<{ finding: Finding; fingerprint: string; graphContext?: string }> = [];
   private resolveDone: (() => void) | null = null;
-  private rejectDone: ((err: Error) => void) | null = null;
   private aborted = false;
 
   constructor(opts: WorkerPoolOptions) {
@@ -60,9 +59,8 @@ export class WorkerPool {
   }
 
   run(): Promise<void> {
-    return new Promise<void>((resolve, reject) => {
+    return new Promise<void>((resolve) => {
       this.resolveDone = resolve;
-      this.rejectDone = reject;
       this.start();
       this.checkDone();
     });
