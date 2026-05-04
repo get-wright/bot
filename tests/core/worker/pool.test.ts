@@ -253,4 +253,129 @@ describe("WorkerPool crash handling", () => {
 
     expect(onResult).not.toHaveBeenCalled();
   });
+
+  // Bug 1 regression: when the last alive worker crashes with workerRestart=false,
+  // queued (not-yet-started) findings must be drained to error verdicts so that
+  // run() resolves instead of hanging on queue.length > 0 in checkDone().
+  it("drains queued findings to error verdicts when last worker crashes (no-restart)", async () => {
+    const onResult = vi.fn();
+    const factory = vi.fn(() => makeFakeWorker());
+    const pool = new WorkerPool({
+      size: 1,
+      factory: factory as any,
+      serializedConfig: config,
+      tracingEnabled: false,
+      onEvent: () => {},
+      onResult,
+      graphBridge: null as any,
+      workerRestart: false,
+    });
+
+    const finding = { check_id: "r" } as any;
+    pool.enqueue([
+      { finding, fingerprint: "fp-inflight" },
+      { finding, fingerprint: "fp-queued-1" },
+      { finding, fingerprint: "fp-queued-2" },
+    ]);
+
+    const runP = pool.run();
+
+    const w = factory.mock.results[0].value;
+    w._msgFromWorker({ kind: "request_task" }); // pulls fp-inflight, leaves 2 in queue
+    w._emit("close", { code: 1 });
+
+    // run() must resolve — race against a short timeout to fail fast on a hang.
+    await Promise.race([
+      runP,
+      new Promise((_, rej) => setTimeout(() => rej(new Error("pool.run() hung after crash")), 1000)),
+    ]);
+
+    const fingerprints = onResult.mock.calls.map((c) => c[0]).sort();
+    expect(fingerprints).toEqual(["fp-inflight", "fp-queued-1", "fp-queued-2"]);
+    for (const [, result] of onResult.mock.calls) {
+      expect(result.verdict.verdict).toBe("error");
+    }
+  });
+
+  // Bug 2 regression: handleCrash must mark the slot as expectedShutdown so
+  // a subsequent close event for the same crash is a no-op. Without the fix,
+  // the second handleCrash call enters checkDone which posts shutdown to the
+  // dead worker and (under real Bun) throws InvalidStateError before reaching
+  // resolveDone. The fake worker's postMessage doesn't throw, so we assert on
+  // the observable: only one error verdict is emitted and run() resolves.
+  it("ignores duplicate crash events (error + close) for the same slot", async () => {
+    const onResult = vi.fn();
+    const factory = vi.fn(() => makeFakeWorker());
+    const pool = new WorkerPool({
+      size: 1,
+      factory: factory as any,
+      serializedConfig: config,
+      tracingEnabled: false,
+      onEvent: () => {},
+      onResult,
+      graphBridge: null as any,
+      workerRestart: false,
+    });
+
+    const finding = { check_id: "r" } as any;
+    pool.enqueue([{ finding, fingerprint: "fp-once" }]);
+    const runP = pool.run();
+
+    const w = factory.mock.results[0].value;
+    w._msgFromWorker({ kind: "request_task" });
+    w._emit("error", { message: "boom" });
+    w._emit("close", { code: 1 });
+
+    await Promise.race([
+      runP,
+      new Promise((_, rej) => setTimeout(() => rej(new Error("pool.run() hung")), 1000)),
+    ]);
+
+    expect(onResult).toHaveBeenCalledTimes(1);
+    expect(onResult).toHaveBeenCalledWith(
+      "fp-once",
+      expect.objectContaining({ verdict: expect.objectContaining({ verdict: "error" }) }),
+    );
+    const shutdownPosts = w.postMessage.mock.calls.filter(
+      (c: any[]) => c[0]?.kind === "shutdown",
+    );
+    expect(shutdownPosts).toHaveLength(0);
+  });
+
+  // Bug 2 regression: checkDone() must not postMessage shutdown to a crashed
+  // worker (which would throw InvalidStateError under real Bun and prevent
+  // resolveDone). The fix marks the crashed slot as expectedShutdown so the
+  // existing skip in checkDone takes effect.
+  it("does not post shutdown to a crashed worker after handleCrash", async () => {
+    const onResult = vi.fn();
+    const factory = vi.fn(() => makeFakeWorker());
+    const pool = new WorkerPool({
+      size: 1,
+      factory: factory as any,
+      serializedConfig: config,
+      tracingEnabled: false,
+      onEvent: () => {},
+      onResult,
+      graphBridge: null as any,
+      workerRestart: false,
+    });
+
+    const finding = { check_id: "r" } as any;
+    pool.enqueue([{ finding, fingerprint: "fp-only" }]);
+    const runP = pool.run();
+
+    const w = factory.mock.results[0].value;
+    w._msgFromWorker({ kind: "request_task" });
+    w._emit("close", { code: 1 });
+
+    await Promise.race([
+      runP,
+      new Promise((_, rej) => setTimeout(() => rej(new Error("pool.run() hung after crash")), 1000)),
+    ]);
+
+    const shutdownPosts = w.postMessage.mock.calls.filter(
+      (c: any[]) => c[0]?.kind === "shutdown",
+    );
+    expect(shutdownPosts).toHaveLength(0);
+  });
 });

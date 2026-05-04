@@ -167,6 +167,14 @@ export class WorkerPool {
 
   private handleCrash(slot: Slot, reason: string): void {
     if (slot.expectedShutdown) return;
+    // Mark the dead slot as shut down before any further work. This (a)
+    // makes a follow-up `close` event for the same crash a no-op, (b)
+    // prevents checkDone() from posting `shutdown` to the dead worker
+    // (which throws InvalidStateError under Bun and would block
+    // resolveDone), and (c) lets the alive-worker check below correctly
+    // exclude this slot.
+    slot.expectedShutdown = true;
+
     const restartAllowed = this.opts.workerRestart === true && slot.restartCount === 0;
 
     const drained = Array.from(slot.inFlight.entries());
@@ -180,6 +188,25 @@ export class WorkerPool {
           inputTokens: 0,
           outputTokens: 0,
         });
+      }
+      // If no alive worker remains to consume the queue, drain it now to
+      // error verdicts. Otherwise checkDone() would block forever on
+      // queue.length > 0 with no consumer, hanging run() and the CLI.
+      const anyAlive = this.slots.some((s) => !s.expectedShutdown);
+      if (!anyAlive && this.queue.length > 0) {
+        const remaining = this.queue.splice(0, this.queue.length);
+        for (const task of remaining) {
+          this.opts.onResult(task.fingerprint, {
+            verdict: {
+              verdict: "error",
+              reasoning: `worker pool exhausted: ${reason}`,
+              key_evidence: [],
+            },
+            toolCalls: [],
+            inputTokens: 0,
+            outputTokens: 0,
+          });
+        }
       }
       this.checkDone();
       return;
