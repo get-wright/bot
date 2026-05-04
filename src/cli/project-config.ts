@@ -24,6 +24,8 @@ export class ProjectConfig {
   reasoningEffort: ReasoningEffort | undefined;
   allowedPaths: string[] = [];
   concurrency = 1;
+  workers = 1;
+  workerRestart = false;
   savedApiKeys: Partial<Record<ProviderName, string>> = {};
 
   constructor(workspace: string) {
@@ -86,8 +88,14 @@ export class ProjectConfig {
 
     const triage = data.triage as Record<string, unknown> | undefined;
     if (triage) {
-      if (typeof triage.concurrency === "number" && triage.concurrency >= 1 && triage.concurrency <= 10) {
+      if (typeof triage.concurrency === "number" && triage.concurrency >= 1 && triage.concurrency <= 16) {
         this.concurrency = triage.concurrency;
+      }
+      if (typeof triage.workers === "number" && triage.workers >= 1 && triage.workers <= 16) {
+        this.workers = triage.workers;
+      }
+      if (typeof triage.worker_restart === "boolean") {
+        this.workerRestart = triage.worker_restart;
       }
     }
   }
