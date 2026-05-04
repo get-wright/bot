@@ -19,6 +19,7 @@ RUN case "$TARGETARCH" in \
  && bun build src/index.ts src/core/worker/entry.ts \
       --compile \
       --target=${BUN_TARGET} \
+      --define 'process.env.NODE_ENV="production"' \
       --outfile sast-triage \
  && chmod +x sast-triage
 

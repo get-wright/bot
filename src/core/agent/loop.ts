@@ -130,31 +130,21 @@ function extractErrorMessage(err: unknown): string {
 }
 
 export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopResult> {
-  // FUTURE: remove after Task 14 ships if a proper mock provider is added.
-  if (process.env.SAST_TEST_AGENT_STUB === "1") {
-    if (config.finding.check_id === "__crash_exit__") {
-      // Bun 1.3.x Workers defer process.exit, so pair it with a synchronous timer
-      // throw that fires outside the runFinding .catch() chain — this is the only
-      // reliable way to trigger the pool's crash-detection path (error event →
-      // fatal message → handleCrash) without resolving the promise first.
-      process.exit(1);
-      setTimeout(() => { throw new Error("simulated worker exit"); }, 0);
-      return new Promise<never>(() => {}) as unknown as AgentLoopResult;
-    }
-    if (config.finding.check_id === "__crash_throw__") throw new Error("simulated crash");
-    config.onEvent?.({ type: "tool_call", tool: "noop", args: {} } as any);
-    return {
-      verdict: {
-        verdict: "false_positive",
-        reasoning: "stub",
-        key_evidence: [],
-        sink_line_quoted: "",
-        attacker_payload: "",
-      },
-      toolCalls: [{ tool: "noop", args: {} } as any],
-      inputTokens: 1,
-      outputTokens: 1,
-    };
+  // Defense-in-depth gate for the test-only short-circuit. Both signals
+  // must agree:
+  //   - `NODE_ENV === "test"`: vitest sets this automatically; production
+  //     builds pin it to `"production"` via `--define`, dead-code-eliminating
+  //     this branch (and its dynamic-import target) from the compiled binary.
+  //   - `SAST_TEST_AGENT_STUB === "1"`: explicit opt-in inside a test process.
+  // Either signal alone is insufficient — a leaked env var on a real
+  // production deployment cannot activate the stub, and a developer running
+  // `bun run` locally cannot accidentally bypass the LLM by setting one var.
+  if (
+    process.env.NODE_ENV === "test"
+    && process.env.SAST_TEST_AGENT_STUB === "1"
+  ) {
+    const { runTestAgentStub } = await import("./__test_stub__.js");
+    return await runTestAgentStub(config);
   }
 
   const { finding, projectRoot, provider, model: modelId, maxSteps, allowBash, onEvent } = config;

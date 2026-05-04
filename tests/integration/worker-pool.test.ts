@@ -20,10 +20,12 @@ describe("WorkerPool integration (2 workers x 4 findings)", () => {
     const results: Record<string, TriageResult> = {};
     const pool = new WorkerPool({
       size: 2,
-      // Pass SAST_TEST_AGENT_STUB into each worker via Bun's env option so the
-      // stub short-circuit in runAgentLoop is active without network calls.
+      // Both env vars are required for the stub to fire — see the gate at
+      // the top of `runAgentLoop`. Bun's Worker `env` option REPLACES the
+      // parent env (rather than merging), so NODE_ENV must be passed
+      // explicitly even though vitest sets it on the parent.
       factory: () => new Worker(new URL("../../src/core/worker/entry.ts", import.meta.url), {
-        env: { SAST_TEST_AGENT_STUB: "1" },
+        env: { SAST_TEST_AGENT_STUB: "1", NODE_ENV: "test" },
       } as any) as any,
       serializedConfig: {
         provider: "openai",
