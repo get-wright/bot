@@ -123,7 +123,10 @@ export class TriageOrchestrator {
     });
   }
 
-  async run(config: AppConfig): Promise<void> {
+  async run(
+    config: AppConfig,
+    opts: { tracingEnabled?: boolean; logBaseDir?: string } = {},
+  ): Promise<void> {
     const { active, filtered, total } = this.loadFindings(config.findingsPath);
 
     if (total === 0) {
@@ -169,6 +172,50 @@ export class TriageOrchestrator {
         }),
       );
       console.error(`[graph] prefetched context for ${graphContexts.size}/${fresh.length} findings`);
+    }
+
+    if (config.workers > 1) {
+      const { WorkerPool } = await import("../worker/pool.js");
+      const { GraphBridge } = await import("../worker/graph-bridge.js");
+      const bridge = new GraphBridge(graphClient);
+      const workerSpec = resolveWorkerEntrySpec();
+      const pool = new WorkerPool({
+        size: config.workers,
+        factory: () => new Worker(workerSpec as any) as any,
+        serializedConfig: {
+          provider: config.provider,
+          model: config.model,
+          apiKey: config.apiKey,
+          baseUrl: config.baseUrl,
+          maxSteps: config.maxSteps,
+          allowBash: config.allowBash,
+          reasoningEffort: config.reasoningEffort,
+          concurrency: config.concurrency,
+        },
+        tracingEnabled: opts.tracingEnabled === true,
+        langsmithProject: process.env.LANGSMITH_PROJECT,
+        graphBridge: bridge,
+        workerRestart: config.workerRestart,
+        logBaseDir: opts.logBaseDir,
+        onEvent: (fp, event) => console.log(formatEvent(event, fp)),
+        onResult: (fp, result) => {
+          const item = fresh.find((x) => x.fingerprint === fp);
+          if (!item) return;
+          writer.append(toOutputRow(item.finding, item.fingerprint, result, new Date().toISOString()));
+        },
+      });
+      pool.enqueue(fresh.map((x) => ({
+        finding: x.finding,
+        fingerprint: x.fingerprint,
+        graphContext: graphContexts?.get(x.fingerprint),
+      })));
+      try {
+        await pool.run();
+      } finally {
+        if (graphClient) await graphClient.close().catch(() => {});
+      }
+      writer.flush();
+      return;
     }
 
     try {
@@ -283,6 +330,31 @@ export class TriageOrchestrator {
       reasoningEffort: config.reasoningEffort,
     });
   }
+}
+
+/**
+ * Resolve the spec for spawning the worker entry. Branches on dev vs.
+ * Bun-compiled binary because of an unfixed Bun bug
+ * (oven-sh/bun#15981, #29124; PR #29150 not yet released as of Bun 1.3.11):
+ * in `--compile` mode, `new URL("../worker/entry.ts", import.meta.url)`
+ * resolves to `file:///$bunfs/...` without the `root/` prefix or `.ts → .js`
+ * rewrite that the embedded module graph expects, so Bun's
+ * `resolveEntryPointSpecifier` rejects it with `BuildMessage: ModuleNotFound`.
+ *
+ * Workaround: in compiled mode, pass a string path that is relative to the
+ * auto-detected bundle root (`src/`, the common ancestor of `src/index.ts`
+ * and `src/core/worker/entry.ts`); in dev mode, the URL form works.
+ *
+ * Detector: `import.meta.url` starts with `file:///$bunfs/` (POSIX) or
+ * `file:///B:/~BUN/` (Windows) only inside the `--compile` runtime.
+ */
+function resolveWorkerEntrySpec(): URL | string {
+  const url = import.meta.url;
+  const isCompiled =
+    url.startsWith("file:///$bunfs/") || url.startsWith("file:///B:/~BUN");
+  return isCompiled
+    ? "./core/worker/entry.ts"
+    : new URL("../worker/entry.ts", import.meta.url);
 }
 
 function toOutputRow(

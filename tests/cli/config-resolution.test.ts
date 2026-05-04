@@ -118,4 +118,39 @@ anthropic = "anthropic-key"
     const cfg = resolveConfig({ provider: "openai" });
     expect(cfg.apiKey).toBe("env-openai-only");
   });
+
+  it("defaults workers to 1 and workerRestart to false", () => {
+    const r = resolveConfig({});
+    expect(r.workers).toBe(1);
+    expect(r.workerRestart).toBe(false);
+  });
+
+  it("CLI --workers wins over env and TOML", () => {
+    process.env.SAST_WORKERS = "2";
+    const toml = { workers: 3, workerRestart: false } as any;
+    const r = resolveConfig({ workers: 4 }, toml);
+    expect(r.workers).toBe(4);
+    delete process.env.SAST_WORKERS;
+  });
+
+  it("env SAST_WORKERS wins over TOML", () => {
+    process.env.SAST_WORKERS = "5";
+    const toml = { workers: 3, workerRestart: false } as any;
+    const r = resolveConfig({}, toml);
+    expect(r.workers).toBe(5);
+    delete process.env.SAST_WORKERS;
+  });
+
+  it("env SAST_WORKER_RESTART parses booleans", () => {
+    process.env.SAST_WORKER_RESTART = "true";
+    const r = resolveConfig({});
+    expect(r.workerRestart).toBe(true);
+    delete process.env.SAST_WORKER_RESTART;
+  });
+
+  it("workers='auto' resolves to navigator.hardwareConcurrency capped at 16", () => {
+    const r = resolveConfig({ workers: "auto" as any });
+    const cores = (globalThis as any).navigator?.hardwareConcurrency ?? 1;
+    expect(r.workers).toBe(Math.min(16, cores));
+  });
 });

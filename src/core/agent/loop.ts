@@ -130,6 +130,23 @@ function extractErrorMessage(err: unknown): string {
 }
 
 export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopResult> {
+  // Defense-in-depth gate for the test-only short-circuit. Both signals
+  // must agree:
+  //   - `NODE_ENV === "test"`: vitest sets this automatically; production
+  //     builds pin it to `"production"` via `--define`, dead-code-eliminating
+  //     this branch (and its dynamic-import target) from the compiled binary.
+  //   - `SAST_TEST_AGENT_STUB === "1"`: explicit opt-in inside a test process.
+  // Either signal alone is insufficient — a leaked env var on a real
+  // production deployment cannot activate the stub, and a developer running
+  // `bun run` locally cannot accidentally bypass the LLM by setting one var.
+  if (
+    process.env.NODE_ENV === "test"
+    && process.env.SAST_TEST_AGENT_STUB === "1"
+  ) {
+    const { runTestAgentStub } = await import("./__test_stub__.js");
+    return await runTestAgentStub(config);
+  }
+
   const { finding, projectRoot, provider, model: modelId, maxSteps, allowBash, onEvent } = config;
 
   log.info("agent", `Starting triage: ${finding.check_id} at ${finding.path}:${finding.start.line}`);

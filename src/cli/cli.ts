@@ -15,6 +15,22 @@ export function parseConcurrency(raw: string | undefined): number | undefined {
   return n;
 }
 
+export function parseWorkers(raw: string | undefined): number | "auto" | undefined {
+  if (raw === undefined) return undefined;
+  if (raw === "auto") return "auto";
+  const n = parseInt(raw, 10);
+  // Strict range validation: silently falling back to default 1 (the prior
+  // behavior) made `--workers 20` hard to diagnose because the user got
+  // single-threaded execution with no warning. Throw with a clear message
+  // and let the CLI surface it to stderr.
+  if (!Number.isFinite(n) || n < 1 || n > 16) {
+    throw new Error(
+      `--workers must be a positive integer 1..16 or 'auto', got: ${JSON.stringify(raw)}`,
+    );
+  }
+  return n;
+}
+
 export function run(): void {
   const program = new Command();
 
@@ -32,19 +48,24 @@ export function run(): void {
     .option("--max-steps <n>", "Max agent loop steps per finding")
     .option("--effort <level>", "Reasoning effort: low, medium, high")
     .option("--concurrency <n>", "Max concurrent agent loops for batch audit")
+    .option("--workers <n>", "Number of Bun Workers (1..16 or 'auto')")
+    .option("--worker-restart", "Respawn a crashed worker once and redrive its in-flight tasks")
     .option("--output <path>", "Consolidated findings-out.json path")
     .option("--no-log", "Disable debug logging (enabled by default)")
     .option("--langsmith", "Enable LangSmith tracing (or set LANGSMITH_TRACING=true)")
     .action(async (findingsPath: string | undefined, opts: any) => {
+      let logBaseDir: string | undefined;
       if (opts.log !== false && process.env.SAST_LOG !== "0") {
-        const logPath = resolve(process.cwd(), ".sast-triage", "debug.log");
+        logBaseDir = resolve(process.cwd(), ".sast-triage");
+        const logPath = resolve(logBaseDir, "debug.log");
         initLogger(logPath);
         log.info("cli", "Debug logging enabled", { logPath });
       }
 
+      let tracingEnabled = false;
       if (opts.langsmith || hasLangSmithConfig()) {
-        const ok = await initTracing();
-        if (!ok && opts.langsmith) {
+        tracingEnabled = await initTracing();
+        if (!tracingEnabled && opts.langsmith) {
           console.error("LangSmith tracing requested but LANGSMITH_API_KEY is not set.");
           console.error("Set: LANGSMITH_API_KEY, LANGSMITH_TRACING=true, LANGSMITH_PROJECT");
           process.exit(1);
@@ -60,6 +81,13 @@ export function run(): void {
       const tomlConfig = projectConfig.hasConfig() ? projectConfig : undefined;
 
       const concurrency = parseConcurrency(opts.concurrency);
+      let workers: number | "auto" | undefined;
+      try {
+        workers = parseWorkers(opts.workers);
+      } catch (err) {
+        console.error((err as Error).message);
+        process.exit(1);
+      }
       const maxSteps = opts.maxSteps !== undefined ? parseInt(opts.maxSteps, 10) : undefined;
       const inputPath = opts.input ?? findingsPath;
 
@@ -72,6 +100,8 @@ export function run(): void {
         allowBash: opts.allowBash,
         maxSteps,
         concurrency,
+        workers,
+        workerRestart: opts.workerRestart === true ? true : undefined,
         outputPath: opts.output,
         reasoningEffort: opts.effort,
       }, tomlConfig);
@@ -80,7 +110,7 @@ export function run(): void {
       const config = validateConfig(resolved);
 
       const orchestrator = new TriageOrchestrator();
-      await orchestrator.run(config);
+      await orchestrator.run(config, { tracingEnabled, logBaseDir });
     });
 
   program.parse();

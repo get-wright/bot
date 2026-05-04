@@ -12,6 +12,16 @@ const PROVIDER_ENV_KEYS: Record<ProviderName, string> = {
   fpt: "FPT_API_KEY",
 };
 
+function resolveWorkers(value: number | "auto" | undefined): number | undefined {
+  if (value === undefined) return undefined;
+  if (value === "auto") {
+    const cores = (globalThis as any).navigator?.hardwareConcurrency ?? 1;
+    return Math.min(16, Math.max(1, cores));
+  }
+  if (typeof value === "number" && value >= 1 && value <= 16) return value;
+  return undefined;
+}
+
 /**
  * Pre-validation config. Used to inspect what was supplied before required-field
  * validation. Orchestrator never sees this type.
@@ -26,6 +36,8 @@ export interface ResolvedConfig {
   allowBash: boolean;
   maxSteps: number;
   concurrency: number;
+  workers: number;
+  workerRestart: boolean;
   reasoningEffort: ReasoningEffort | undefined;
   headless: true;
 }
@@ -49,6 +61,8 @@ export interface ResolveOpts {
   allowBash?: boolean;
   maxSteps?: number;
   concurrency?: number;
+  workers?: number | "auto";
+  workerRestart?: boolean;
   outputPath?: string;
   reasoningEffort?: string;
 }
@@ -79,6 +93,14 @@ export function resolveConfig(opts: ResolveOpts, toml?: ProjectConfig): Resolved
     allowBash: opts.allowBash ?? bool(env.SAST_ALLOW_BASH) ?? false,
     maxSteps: opts.maxSteps ?? num(env.SAST_MAX_STEPS) ?? 20,
     concurrency: opts.concurrency ?? num(env.SAST_CONCURRENCY) ?? toml?.concurrency ?? 1,
+    workers: resolveWorkers(opts.workers)
+          ?? resolveWorkers(env.SAST_WORKERS === "auto" ? "auto" : num(env.SAST_WORKERS) as number | undefined)
+          ?? toml?.workers
+          ?? 1,
+    workerRestart: opts.workerRestart
+                ?? bool(env.SAST_WORKER_RESTART)
+                ?? toml?.workerRestart
+                ?? false,
     reasoningEffort: (opts.reasoningEffort ?? env.SAST_EFFORT ?? toml?.reasoningEffort) as ReasoningEffort | undefined,
     headless: true,
   };

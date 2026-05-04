@@ -170,6 +170,8 @@ describe("TriageOrchestrator.triageBatch — error rows", () => {
       headless: true,
       allowBash: false,
       maxSteps: 15,
+      workers: 1,
+      workerRestart: false,
     } as AppConfig;
 
     const results: Array<{ fp: string; result: unknown }> = [];

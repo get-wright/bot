@@ -148,4 +148,59 @@ describe("ProjectConfig", () => {
     cfg.apiKey = "sk-explicit";
     expect(cfg.resolvedApiKey()).toBe("sk-explicit");
   });
+
+  it("defaults workers to 1", () => {
+    const cfg = new ProjectConfig(workspace);
+    expect(cfg.workers).toBe(1);
+  });
+
+  it("defaults workerRestart to false", () => {
+    const cfg = new ProjectConfig(workspace);
+    expect(cfg.workerRestart).toBe(false);
+  });
+
+  it("loads workers from toml", () => {
+    writeFileSync(
+      join(workspace, ".sast-triage.toml"),
+      '[provider]\nname = "openai"\nmodel = "gpt-4o"\n\n[triage]\nworkers = 4\n',
+    );
+    const cfg = new ProjectConfig(workspace);
+    expect(cfg.workers).toBe(4);
+  });
+
+  it("loads worker_restart from toml", () => {
+    writeFileSync(
+      join(workspace, ".sast-triage.toml"),
+      '[provider]\nname = "openai"\nmodel = "gpt-4o"\n\n[triage]\nworker_restart = true\n',
+    );
+    const cfg = new ProjectConfig(workspace);
+    expect(cfg.workerRestart).toBe(true);
+  });
+
+  it("rejects out-of-range workers in toml, falls back to default 1", () => {
+    writeFileSync(
+      join(workspace, ".sast-triage.toml"),
+      '[provider]\nname = "openai"\nmodel = "gpt-4o"\n\n[triage]\nworkers = 99\n',
+    );
+    const cfg = new ProjectConfig(workspace);
+    expect(cfg.workers).toBe(1);
+  });
+
+  it("rejects workers = 0 in toml, falls back to default 1", () => {
+    writeFileSync(
+      join(workspace, ".sast-triage.toml"),
+      '[provider]\nname = "openai"\nmodel = "gpt-4o"\n\n[triage]\nworkers = 0\n',
+    );
+    const cfg = new ProjectConfig(workspace);
+    expect(cfg.workers).toBe(1);
+  });
+
+  it("accepts concurrency up to 16", () => {
+    writeFileSync(
+      join(workspace, ".sast-triage.toml"),
+      '[provider]\nname = "openai"\nmodel = "gpt-4o"\n\n[triage]\nconcurrency = 16\n',
+    );
+    const cfg = new ProjectConfig(workspace);
+    expect(cfg.concurrency).toBe(16);
+  });
 });

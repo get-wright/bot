@@ -1,4 +1,4 @@
-# CLAUDE.md
+# [CLAUDE.md](http://CLAUDE.md)
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
@@ -43,6 +43,7 @@ Multi-provider via AI SDK v5: `openai`, `anthropic`, `google`, `openrouter`, `fp
 Unified reasoning effort control via `resolveProviderOptions(provider, effort)` — maps `"low"|"medium"|"high"` to provider-specific `providerOptions`: OpenAI/OpenRouter `reasoningEffort`, Anthropic `thinking.budgetTokens`, Google `thinkingConfig.thinkingBudget`.
 
 **Key files:**
+
 - `src/index.ts` — entry shim into `src/cli/cli.ts`
 - `src/cli/cli.ts` — commander setup, action handler, headless mode
 - `src/cli/config.ts` — `resolveConfig` + `validateConfig`
@@ -75,10 +76,10 @@ Unified reasoning effort control via `resolveProviderOptions(provider, effort)` 
 
 - **AI SDK v5 uses `inputSchema`** not `parameters` in `tool()` calls
 - **OpenRouter must use `.chat(model)`** not `provider(model)` — the default hits the Responses API (`/responses`) which OpenRouter doesn't support
-- **`bun:sqlite` vs `better-sqlite3`** — graph DB sparseness check uses `bun:sqlite` in the Bun-compiled binary, `better-sqlite3` under Node/vitest. Runtime detection via `typeof globalThis.Bun`.
+- `**bun:sqlite` vs `better-sqlite3**` — graph DB sparseness check uses `bun:sqlite` in the Bun-compiled binary, `better-sqlite3` under Node/vitest. Runtime detection via `typeof globalThis.Bun`.
 - **Tab characters in tool output** — `\t` counts as 1 char but renders as 8; expand tabs to 4 spaces before truncating
 - **Verdict schema tolerance** — some models (Nemotron, GLM) send `key_evidence` as string or JSON-stringified array `'["a","b"]'`; Zod union handles all shapes
-- **`prepareStep` for forced verdict is model-dependent** — strong models comply; weak models (gpt-oss-120b, nemotron, glm-4.7) ignore `toolChoice`. Two failure modes: (1) no tool call, stream ends → `generateObject` fallback recovers verdict from conversation history; (2) tool call with empty fields → `accumulatedText` backfill from text-delta stream.
+- `**prepareStep` for forced verdict is model-dependent** — strong models comply; weak models (gpt-oss-120b, nemotron, glm-4.7) ignore `toolChoice`. Two failure modes: (1) no tool call, stream ends → `generateObject` fallback recovers verdict from conversation history; (2) tool call with empty fields → `accumulatedText` backfill from text-delta stream.
 - **Empty verdict fields are filled from `accumulatedText`** — weak models emit `{verdict:"X", reasoning:"", key_evidence:[]}` after writing the analysis as text. The streamed text is buffered and used to backfill empty fields at end-of-stream. Verdict emission is **delayed** until after stream ends for this reason.
 - **Fallback schema must be lenient** — strict Zod constraints (`min(20)`, `min(1)`) cause `generateObject` to throw on weak models that emit only `{verdict:"..."}`, losing even the verdict. Use optional fields + `.describe()` + text-synthesis backfill.
 - **Rate limit detection** — `extractErrorMessage()` in loop.ts walks cause chain, parses HTTP status (429/401/402/5xx) and OpenRouter `metadata.retry_after`
@@ -92,24 +93,28 @@ Unified reasoning effort control via `resolveProviderOptions(provider, effort)` 
 - **Graph build failures don't block triage** — if `code-review-graph build` errors, `graphClient` is set to `null` and the agent runs without graph tools. Failure surfaces as a single stderr line `[graph] build failed: ...`.
 - **Graph MCP envelope is `results`, not `nodes`** — upstream `code-review-graph` returns query results under `{results: [...]}`. The client also accepts `{nodes: [...]}` for forward-compat. `semantic_search_nodes_tool` parameter is `limit`, not `top_k`.
 - **Graph subprocess is closed in `try/finally`** — `TriageOrchestrator.run` opens the MCP client once, runs the entire batch, and closes in `finally` so even errors reap the child process. Per-call clients are NOT supported.
+- **Worker entry resolution differs in compiled binaries** — `new Worker(new URL("../worker/entry.ts", import.meta.url))` works in `bun run` but produces `file:///$bunfs/...` (no `root/` prefix, no `.ts → .js` rewrite) under `bun build --compile`, which Bun's `resolveEntryPointSpecifier` rejects with `BuildMessage: ModuleNotFound`. Fixed upstream in PR oven-sh/bun#29150 but not yet released as of Bun 1.3.11. Workaround in `resolveWorkerEntrySpec()` (`src/core/triage/orchestrator.ts`): branch on `import.meta.url.startsWith("file:///$bunfs/")` and return a string path relative to the auto-detected bundle root (`./core/worker/entry.ts`) for compiled mode; URL form for dev mode. Symptom of regression: `--workers 2` exits 0 with no NDJSON output and an empty debug log (workers fail to spawn silently because no `ready` message ever arrives).
 
 ## Where to Look
 
-| Task | Location |
-|------|----------|
-| Add LLM provider | `src/infra/providers/registry.ts` → `SUPPORTED_PROVIDERS` + switch case |
-| Add reasoning effort for new provider | `src/infra/providers/reasoning.ts` → `resolveProviderOptions` switch case |
-| Change pre-filter rules | `src/core/parser/prefilter.ts` → `TEST_DIR_PATTERNS`, `GENERATED_PATH_PATTERNS` |
-| Add agent tool | `src/core/agent/tools/` → new file + register in `src/core/agent/tools/index.ts` |
-| Change system prompt | `src/core/agent/system-prompt.ts` |
-| Change agent loop behavior | `src/core/agent/loop.ts` → `prepareStep`, `extractErrorMessage` |
-| Change config persistence | `src/cli/project-config.ts` (TOML fields) |
-| Change follow-up behavior | `src/core/agent/follow-up.ts` |
-| Change debug logging | `src/infra/logger.ts` |
-| Change error display | `src/core/agent/loop.ts` → `extractErrorMessage()` |
-| Change NDJSON output | `src/infra/output/writer.ts` |
-| Change orchestration / batching | `src/core/triage/orchestrator.ts` |
-| Add graph-tool behavior | `src/core/agent/tools/query-graph.ts` |
-| Change graph client / discovery | `src/infra/graph/index.ts`, `src/infra/graph/mcp-client.ts` |
-| Toggle graph integration | env var `SAST_USE_GRAPH=1` (default off) |
-| Tune read-dedup behavior | `src/core/agent/tools/read.ts` → `DEDUP_MIN_BYTES`, `mergeRanges` |
+
+| Task                                  | Location                                                                         |
+| ------------------------------------- | -------------------------------------------------------------------------------- |
+| Add LLM provider                      | `src/infra/providers/registry.ts` → `SUPPORTED_PROVIDERS` + switch case          |
+| Add reasoning effort for new provider | `src/infra/providers/reasoning.ts` → `resolveProviderOptions` switch case        |
+| Change pre-filter rules               | `src/core/parser/prefilter.ts` → `TEST_DIR_PATTERNS`, `GENERATED_PATH_PATTERNS`  |
+| Add agent tool                        | `src/core/agent/tools/` → new file + register in `src/core/agent/tools/index.ts` |
+| Change system prompt                  | `src/core/agent/system-prompt.ts`                                                |
+| Change agent loop behavior            | `src/core/agent/loop.ts` → `prepareStep`, `extractErrorMessage`                  |
+| Change config persistence             | `src/cli/project-config.ts` (TOML fields)                                        |
+| Change follow-up behavior             | `src/core/agent/follow-up.ts`                                                    |
+| Change debug logging                  | `src/infra/logger.ts`                                                            |
+| Change error display                  | `src/core/agent/loop.ts` → `extractErrorMessage()`                               |
+| Change NDJSON output                  | `src/infra/output/writer.ts`                                                     |
+| Change orchestration / batching       | `src/core/triage/orchestrator.ts`                                                |
+| Add graph-tool behavior               | `src/core/agent/tools/query-graph.ts`                                            |
+| Change graph client / discovery       | `src/infra/graph/index.ts`, `src/infra/graph/mcp-client.ts`                      |
+| Toggle graph integration              | env var `SAST_USE_GRAPH=1` (default off)                                         |
+| Tune read-dedup behavior              | `src/core/agent/tools/read.ts` → `DEDUP_MIN_BYTES`, `mergeRanges`                |
+
+
