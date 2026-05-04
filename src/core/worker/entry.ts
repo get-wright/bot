@@ -4,6 +4,7 @@ declare const self: Worker;
 import type { ToWorker, FromWorker, SerializedConfig } from "./protocol.js";
 import { initTracing } from "../../infra/tracing.js";
 import { WorkerGraphClient } from "./graph-stub.js";
+import { runAgentLoop } from "../agent/loop.js";
 
 let serializedConfig: SerializedConfig | null = null;
 let graphStub: WorkerGraphClient | null = null;
@@ -11,6 +12,30 @@ let aborted = false;
 
 function send(msg: FromWorker): void {
   postMessage(msg);
+}
+
+async function runFinding(
+  finding: import("../models/finding.js").Finding,
+  fingerprint: string,
+  graphContext?: string,
+): Promise<void> {
+  if (!serializedConfig || !graphStub) throw new Error("worker not initialized");
+  const result = await runAgentLoop({
+    finding,
+    projectRoot: process.cwd(),
+    provider: serializedConfig.provider as any,
+    model: serializedConfig.model,
+    maxSteps: serializedConfig.maxSteps,
+    allowBash: serializedConfig.allowBash,
+    apiKey: serializedConfig.apiKey,
+    baseUrl: serializedConfig.baseUrl,
+    reasoningEffort: serializedConfig.reasoningEffort,
+    graphClient: graphStub,
+    graphContext,
+    onEvent: (event) => send({ kind: "event", fingerprint, event }),
+  });
+  send({ kind: "result", fingerprint, result });
+  if (!aborted) send({ kind: "request_task" });
 }
 
 self.onmessage = async (event: MessageEvent<ToWorker>) => {
@@ -47,8 +72,24 @@ self.onmessage = async (event: MessageEvent<ToWorker>) => {
       process.exit(0);
     }
     case "task": {
-      // Filled in by Task 8.
-      send({ kind: "fatal", error: "task handler not implemented" });
+      if (!serializedConfig || !graphStub) {
+        send({ kind: "fatal", error: "task before init" });
+        return;
+      }
+      runFinding(msg.finding, msg.fingerprint, msg.graphContext).catch((err: unknown) => {
+        const message = err instanceof Error ? err.message : String(err);
+        send({
+          kind: "result",
+          fingerprint: msg.fingerprint,
+          result: {
+            verdict: { verdict: "error", reasoning: message, key_evidence: [] },
+            toolCalls: [],
+            inputTokens: 0,
+            outputTokens: 0,
+          },
+        });
+        send({ kind: "request_task" });
+      });
       return;
     }
   }

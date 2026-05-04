@@ -37,17 +37,43 @@ export class WorkerPool {
   private slots: Slot[] = [];
   private opts: WorkerPoolOptions;
   private queue: Array<{ finding: Finding; fingerprint: string; graphContext?: string }> = [];
-  private done = false;
   private resolveDone: (() => void) | null = null;
   private rejectDone: ((err: Error) => void) | null = null;
+  private aborted = false;
 
   constructor(opts: WorkerPoolOptions) {
     this.opts = opts;
   }
 
+  enqueue(tasks: Array<{ finding: Finding; fingerprint: string; graphContext?: string }>): void {
+    this.queue.push(...tasks);
+  }
+
   start(): void {
     for (let i = 0; i < this.opts.size; i++) {
       this.spawnSlot(i);
+    }
+  }
+
+  run(): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      this.resolveDone = resolve;
+      this.rejectDone = reject;
+      this.start();
+      this.checkDone();
+    });
+  }
+
+  private checkDone(): void {
+    if (this.aborted) return;
+    if (this.queue.length > 0) return;
+    const allIdle = this.slots.every((s) => s.inFlight.size === 0);
+    if (allIdle) {
+      for (const s of this.slots) {
+        s.expectedShutdown = true;
+        s.worker.postMessage({ kind: "shutdown" });
+      }
+      this.resolveDone?.();
     }
   }
 
@@ -73,7 +99,6 @@ export class WorkerPool {
   private attach(slot: Slot): void {
     slot.worker.onmessage = (event) => {
       this.onMessage(slot, event.data).catch((err) => {
-        // Surface unexpected handler errors; don't silently swallow.
         console.error(`[worker-pool] handler error: ${err}`);
       });
     };
@@ -88,10 +113,42 @@ export class WorkerPool {
   }
 
   private async onMessage(slot: Slot, msg: FromWorker): Promise<void> {
-    // Filled in by Task 8 / 9. For now, only react to graph_request
-    // (so the bridge works once Task 8 lands).
-    if (msg.kind === "graph_request") {
-      await this.opts.graphBridge.handle(slot.worker, msg);
+    switch (msg.kind) {
+      case "ready":
+        return;
+      case "request_task": {
+        const next = this.queue.shift();
+        if (!next) {
+          if (slot.inFlight.size === 0) {
+            slot.expectedShutdown = true;
+            slot.worker.postMessage({ kind: "shutdown" });
+          }
+          this.checkDone();
+          return;
+        }
+        slot.inFlight.set(next.fingerprint, { finding: next.finding, graphContext: next.graphContext });
+        slot.worker.postMessage({
+          kind: "task",
+          finding: next.finding,
+          fingerprint: next.fingerprint,
+          graphContext: next.graphContext,
+        });
+        return;
+      }
+      case "event":
+        this.opts.onEvent(msg.fingerprint, msg.event);
+        return;
+      case "result":
+        slot.inFlight.delete(msg.fingerprint);
+        this.opts.onResult(msg.fingerprint, msg.result);
+        this.checkDone();
+        return;
+      case "graph_request":
+        await this.opts.graphBridge.handle(slot.worker, msg);
+        return;
+      case "fatal":
+        this.handleCrash(slot, msg.error);
+        return;
     }
   }
 
@@ -100,7 +157,7 @@ export class WorkerPool {
   }
 
   shutdown(): void {
-    this.done = true;
+    this.aborted = true;
     for (const slot of this.slots) {
       slot.expectedShutdown = true;
       slot.worker.terminate();

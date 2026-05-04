@@ -76,3 +76,90 @@ describe("WorkerPool spawn", () => {
     workers.forEach(w => expect(w.terminate).toHaveBeenCalledOnce());
   });
 });
+
+describe("WorkerPool dispatch", () => {
+  it("on request_task, sends next queued task", async () => {
+    const factory = vi.fn(() => makeFakeWorker());
+    const pool = new WorkerPool({
+      size: 1,
+      factory: factory as any,
+      serializedConfig: config,
+      tracingEnabled: false,
+      onEvent: () => {},
+      onResult: () => {},
+      graphBridge: null as any,
+    });
+
+    const finding = { check_id: "rule-1" } as any;
+    pool.enqueue([{ finding, fingerprint: "fp1" }]);
+    pool.start();
+
+    const w = factory.mock.results[0].value;
+    w._msgFromWorker({ kind: "request_task" });
+
+    const taskCall = w.postMessage.mock.calls.find(
+      (c: any[]) => c[0].kind === "task",
+    );
+    expect(taskCall).toBeDefined();
+    expect(taskCall![0].fingerprint).toBe("fp1");
+  });
+
+  it("when queue empty, sends shutdown", async () => {
+    const factory = vi.fn(() => makeFakeWorker());
+    const pool = new WorkerPool({
+      size: 1,
+      factory: factory as any,
+      serializedConfig: config,
+      tracingEnabled: false,
+      onEvent: () => {},
+      onResult: () => {},
+      graphBridge: null as any,
+    });
+    pool.enqueue([]);
+    pool.start();
+
+    const w = factory.mock.results[0].value;
+    w._msgFromWorker({ kind: "request_task" });
+
+    const shutdownCall = w.postMessage.mock.calls.find(
+      (c: any[]) => c[0].kind === "shutdown",
+    );
+    expect(shutdownCall).toBeDefined();
+  });
+
+  it("forwards result and event messages to callbacks", async () => {
+    const factory = vi.fn(() => makeFakeWorker());
+    const onResult = vi.fn();
+    const onEvent = vi.fn();
+    const pool = new WorkerPool({
+      size: 1,
+      factory: factory as any,
+      serializedConfig: config,
+      tracingEnabled: false,
+      onEvent,
+      onResult,
+      graphBridge: null as any,
+    });
+    pool.start();
+
+    const w = factory.mock.results[0].value;
+    w._msgFromWorker({
+      kind: "event",
+      fingerprint: "fp1",
+      event: { type: "tool_call" } as any,
+    });
+    w._msgFromWorker({
+      kind: "result",
+      fingerprint: "fp1",
+      result: {
+        verdict: { verdict: "false_positive", reasoning: "test", key_evidence: [] },
+        toolCalls: [],
+        inputTokens: 0,
+        outputTokens: 0,
+      } as any,
+    });
+
+    expect(onEvent).toHaveBeenCalledWith("fp1", expect.objectContaining({ type: "tool_call" }));
+    expect(onResult).toHaveBeenCalledOnce();
+  });
+});
