@@ -77,14 +77,14 @@ export class WorkerPool {
     }
   }
 
-  private spawnSlot(id: number): void {
+  private spawnSlot(id: number, priorRestartCount = 0): void {
     const worker = this.opts.factory();
     const slot: Slot = {
       id,
       worker,
       inFlight: new Map(),
       expectedShutdown: false,
-      restartCount: 0,
+      restartCount: priorRestartCount,
     };
     this.slots[id] = slot;
     this.attach(slot);
@@ -152,8 +152,31 @@ export class WorkerPool {
     }
   }
 
-  private handleCrash(_slot: Slot, _reason: string): void {
-    // Filled in by Task 10.
+  private handleCrash(slot: Slot, reason: string): void {
+    if (slot.expectedShutdown) return;
+    const restartAllowed = this.opts.workerRestart === true && slot.restartCount === 0;
+
+    const drained = Array.from(slot.inFlight.entries());
+    slot.inFlight.clear();
+
+    if (!restartAllowed) {
+      for (const [fp] of drained) {
+        this.opts.onResult(fp, {
+          verdict: { verdict: "error", reasoning: `worker crash: ${reason}`, key_evidence: [] },
+          toolCalls: [],
+          inputTokens: 0,
+          outputTokens: 0,
+        });
+      }
+      this.checkDone();
+      return;
+    }
+
+    for (const [fp, payload] of drained.reverse()) {
+      this.queue.unshift({ finding: payload.finding, fingerprint: fp, graphContext: payload.graphContext });
+    }
+    slot.restartCount++;
+    this.spawnSlot(slot.id, slot.restartCount);
   }
 
   shutdown(): void {

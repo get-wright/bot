@@ -163,3 +163,94 @@ describe("WorkerPool dispatch", () => {
     expect(onResult).toHaveBeenCalledOnce();
   });
 });
+
+describe("WorkerPool crash handling", () => {
+  it("emits error verdict for in-flight finding when worker crashes (no-restart)", async () => {
+    const onResult = vi.fn();
+    const factory = vi.fn(() => makeFakeWorker());
+    const pool = new WorkerPool({
+      size: 1,
+      factory: factory as any,
+      serializedConfig: config,
+      tracingEnabled: false,
+      onEvent: () => {},
+      onResult,
+      graphBridge: null as any,
+      workerRestart: false,
+    });
+
+    const finding = { check_id: "r" } as any;
+    pool.enqueue([{ finding, fingerprint: "fp-crash" }]);
+    pool.start();
+
+    const w = factory.mock.results[0].value;
+    w._msgFromWorker({ kind: "request_task" }); // pulls task, registers in-flight
+    w._emit("close", { code: 1 });
+
+    expect(onResult).toHaveBeenCalledWith(
+      "fp-crash",
+      expect.objectContaining({
+        verdict: expect.objectContaining({ verdict: "error" }),
+      }),
+    );
+  });
+
+  it("with workerRestart=true, redrives in-flight task once", () => {
+    const onResult = vi.fn();
+    const workers: any[] = [];
+    const factory = vi.fn(() => {
+      const w = makeFakeWorker();
+      workers.push(w);
+      return w;
+    });
+    const pool = new WorkerPool({
+      size: 1,
+      factory: factory as any,
+      serializedConfig: config,
+      tracingEnabled: false,
+      onEvent: () => {},
+      onResult,
+      graphBridge: null as any,
+      workerRestart: true,
+    });
+
+    const finding = { check_id: "r" } as any;
+    pool.enqueue([{ finding, fingerprint: "fp-redrive" }]);
+    pool.start();
+
+    workers[0]._msgFromWorker({ kind: "request_task" });
+    workers[0]._emit("close", { code: 1 });
+
+    // A new worker should have spawned and received an init.
+    expect(factory).toHaveBeenCalledTimes(2);
+    const reinit = workers[1].postMessage.mock.calls[0];
+    expect(reinit[0].kind).toBe("init");
+
+    // After ready/request_task on the new worker, it should pull the redriven task.
+    workers[1]._msgFromWorker({ kind: "request_task" });
+    const taskCall = workers[1].postMessage.mock.calls.find((c: any[]) => c[0].kind === "task");
+    expect(taskCall![0].fingerprint).toBe("fp-redrive");
+  });
+
+  it("expected shutdown with code=0 is not treated as a crash", () => {
+    const onResult = vi.fn();
+    const factory = vi.fn(() => makeFakeWorker());
+    const pool = new WorkerPool({
+      size: 1,
+      factory: factory as any,
+      serializedConfig: config,
+      tracingEnabled: false,
+      onEvent: () => {},
+      onResult,
+      graphBridge: null as any,
+    });
+    pool.enqueue([]);
+    pool.start();
+
+    const w = factory.mock.results[0].value;
+    w._msgFromWorker({ kind: "request_task" }); // queue empty -> shutdown sent
+    w._emit("close", { code: 0 });
+
+    expect(onResult).not.toHaveBeenCalled();
+  });
+});
