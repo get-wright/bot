@@ -177,10 +177,19 @@ describe("ProjectConfig", () => {
     expect(cfg.workerRestart).toBe(true);
   });
 
-  it("clamps workers to 1..16", () => {
+  it("rejects out-of-range workers in toml, falls back to default 1", () => {
     writeFileSync(
       join(workspace, ".sast-triage.toml"),
       '[provider]\nname = "openai"\nmodel = "gpt-4o"\n\n[triage]\nworkers = 99\n',
+    );
+    const cfg = new ProjectConfig(workspace);
+    expect(cfg.workers).toBe(1);
+  });
+
+  it("rejects workers = 0 in toml, falls back to default 1", () => {
+    writeFileSync(
+      join(workspace, ".sast-triage.toml"),
+      '[provider]\nname = "openai"\nmodel = "gpt-4o"\n\n[triage]\nworkers = 0\n',
     );
     const cfg = new ProjectConfig(workspace);
     expect(cfg.workers).toBe(1);
