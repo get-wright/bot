@@ -19,7 +19,15 @@ export function parseWorkers(raw: string | undefined): number | "auto" | undefin
   if (raw === undefined) return undefined;
   if (raw === "auto") return "auto";
   const n = parseInt(raw, 10);
-  if (!Number.isFinite(n) || n < 1) return undefined;
+  // Strict range validation: silently falling back to default 1 (the prior
+  // behavior) made `--workers 20` hard to diagnose because the user got
+  // single-threaded execution with no warning. Throw with a clear message
+  // and let the CLI surface it to stderr.
+  if (!Number.isFinite(n) || n < 1 || n > 16) {
+    throw new Error(
+      `--workers must be a positive integer 1..16 or 'auto', got: ${JSON.stringify(raw)}`,
+    );
+  }
   return n;
 }
 
@@ -73,7 +81,13 @@ export function run(): void {
       const tomlConfig = projectConfig.hasConfig() ? projectConfig : undefined;
 
       const concurrency = parseConcurrency(opts.concurrency);
-      const workers = parseWorkers(opts.workers);
+      let workers: number | "auto" | undefined;
+      try {
+        workers = parseWorkers(opts.workers);
+      } catch (err) {
+        console.error((err as Error).message);
+        process.exit(1);
+      }
       const maxSteps = opts.maxSteps !== undefined ? parseInt(opts.maxSteps, 10) : undefined;
       const inputPath = opts.input ?? findingsPath;
 

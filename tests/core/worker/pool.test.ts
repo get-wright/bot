@@ -1,5 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { WorkerPool } from "../../../src/core/worker/pool.js";
+import { GraphBridge } from "../../../src/core/worker/graph-bridge.js";
+import type { GraphClient } from "../../../src/infra/graph/mcp-client.js";
 import type { SerializedConfig } from "../../../src/core/worker/protocol.js";
 
 function makeFakeWorker() {
@@ -54,6 +56,52 @@ describe("WorkerPool spawn", () => {
     });
   });
 
+  // Bug 1 regression: workers must not register graph tools when main has
+  // no graph client. The pool signals this via `graphEnabled` in the init
+  // message; entry.ts uses it to decide whether to construct a stub.
+  it("init carries graphEnabled=false when graphBridge wraps a null client", () => {
+    const factory = vi.fn(() => makeFakeWorker());
+    const pool = new WorkerPool({
+      size: 1,
+      factory: factory as any,
+      serializedConfig: config,
+      tracingEnabled: false,
+      onEvent: () => {},
+      onResult: () => {},
+      graphBridge: new GraphBridge(null),
+    });
+
+    pool.start();
+
+    const initMsg = (factory.mock.results[0].value as any).postMessage.mock.calls[0][0];
+    expect(initMsg.kind).toBe("init");
+    expect(initMsg.graphEnabled).toBe(false);
+  });
+
+  it("init carries graphEnabled=true when graphBridge wraps a real client", () => {
+    const fakeClient: GraphClient = {
+      queryGraph: vi.fn(async () => []),
+      searchSymbol: vi.fn(async () => []),
+      close: vi.fn(async () => {}),
+    } as unknown as GraphClient;
+    const factory = vi.fn(() => makeFakeWorker());
+    const pool = new WorkerPool({
+      size: 1,
+      factory: factory as any,
+      serializedConfig: config,
+      tracingEnabled: false,
+      onEvent: () => {},
+      onResult: () => {},
+      graphBridge: new GraphBridge(fakeClient),
+    });
+
+    pool.start();
+
+    const initMsg = (factory.mock.results[0].value as any).postMessage.mock.calls[0][0];
+    expect(initMsg.kind).toBe("init");
+    expect(initMsg.graphEnabled).toBe(true);
+  });
+
   it("shutdown calls terminate on every worker", () => {
     const workers: any[] = [];
     const factory = vi.fn(() => {
@@ -102,6 +150,52 @@ describe("WorkerPool dispatch", () => {
     );
     expect(taskCall).toBeDefined();
     expect(taskCall![0].fingerprint).toBe("fp1");
+  });
+
+  // Bug 2 regression: when a worker finishes its last task it sends both
+  // `result` and `request_task`. The pool sends shutdown on `result` (via
+  // checkDone), so the late-arriving `request_task` must not post a second
+  // shutdown to the (potentially terminated) worker.
+  it("does not post duplicate shutdown when result+request_task arrive after the last task", async () => {
+    const factory = vi.fn(() => makeFakeWorker());
+    const pool = new WorkerPool({
+      size: 1,
+      factory: factory as any,
+      serializedConfig: config,
+      tracingEnabled: false,
+      onEvent: () => {},
+      onResult: () => {},
+      graphBridge: null as any,
+    });
+
+    const finding = { check_id: "r" } as any;
+    pool.enqueue([{ finding, fingerprint: "fp-only" }]);
+    const runP = pool.run();
+
+    const w = factory.mock.results[0].value;
+    w._msgFromWorker({ kind: "request_task" });
+    // Worker finishes its only task: sends result, then asks for more.
+    w._msgFromWorker({
+      kind: "result",
+      fingerprint: "fp-only",
+      result: {
+        verdict: { verdict: "false_positive", reasoning: "ok", key_evidence: [] },
+        toolCalls: [],
+        inputTokens: 0,
+        outputTokens: 0,
+      } as any,
+    });
+    w._msgFromWorker({ kind: "request_task" });
+
+    await Promise.race([
+      runP,
+      new Promise((_, rej) => setTimeout(() => rej(new Error("pool.run() hung")), 1000)),
+    ]);
+
+    const shutdownPosts = w.postMessage.mock.calls.filter(
+      (c: any[]) => c[0]?.kind === "shutdown",
+    );
+    expect(shutdownPosts).toHaveLength(1);
   });
 
   it("when queue empty, sends shutdown", async () => {

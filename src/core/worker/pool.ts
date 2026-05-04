@@ -106,6 +106,7 @@ export class WorkerPool {
       tracingEnabled: this.opts.tracingEnabled,
       langsmithProject: this.opts.langsmithProject,
       logPath,
+      graphEnabled: this.opts.graphBridge?.hasClient === true,
     });
   }
 
@@ -132,7 +133,13 @@ export class WorkerPool {
       case "request_task": {
         const next = this.queue.shift();
         if (!next) {
-          if (slot.inFlight.size === 0) {
+          // When a worker finishes its last task it sends both `result`
+          // (handled below) and `request_task`. The result branch may have
+          // already flagged this slot expectedShutdown via checkDone; in
+          // that case the worker is being / has been told to shut down, so
+          // posting another `shutdown` would either duplicate the message
+          // or — under real Bun, after terminate() — throw InvalidStateError.
+          if (slot.inFlight.size === 0 && !slot.expectedShutdown) {
             slot.expectedShutdown = true;
             slot.worker.postMessage({ kind: "shutdown" });
           }

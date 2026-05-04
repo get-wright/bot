@@ -32,7 +32,7 @@ async function runFinding(
   fingerprint: string,
   graphContext?: string,
 ): Promise<void> {
-  if (!serializedConfig || !graphStub) throw new Error("worker not initialized");
+  if (!serializedConfig) throw new Error("worker not initialized");
   const result = await runAgentLoop({
     finding,
     projectRoot: process.cwd(),
@@ -56,7 +56,12 @@ self.onmessage = async (event: MessageEvent<ToWorker>) => {
     case "init": {
       workerId = msg.workerId;
       serializedConfig = msg.serializedConfig;
-      graphStub = new WorkerGraphClient(send);
+      // Only construct the graph stub (and thus expose query_graph /
+      // search_symbol tools to the agent) when main actually has a graph
+      // client. Otherwise the stub would round-trip every call through
+      // GraphBridge, which returns [] when client is null — wasting tokens
+      // and misleading the LLM with empty results.
+      graphStub = msg.graphEnabled ? new WorkerGraphClient(send) : null;
       // Per-worker debug log so concurrent appendFileSync calls don't
       // interleave lines across workers in a single shared file. The main
       // process owns its own `debug.log` separately.
@@ -101,7 +106,7 @@ self.onmessage = async (event: MessageEvent<ToWorker>) => {
       return;
     }
     case "task": {
-      if (!serializedConfig || !graphStub) {
+      if (!serializedConfig) {
         send({ kind: "fatal", error: "task before init" });
         return;
       }

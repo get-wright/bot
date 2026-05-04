@@ -8,6 +8,12 @@ interface WorkerLike {
 export class GraphBridge {
   constructor(private client: GraphClient | null) {}
 
+  /** True when the bridge is backed by a real GraphClient. Used by the
+   * pool to decide whether to ask workers to register graph tools. */
+  get hasClient(): boolean {
+    return this.client !== null;
+  }
+
   async handle(
     worker: WorkerLike,
     req: Extract<FromWorker, { kind: "graph_request" }>,

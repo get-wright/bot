@@ -26,6 +26,11 @@ export type ToWorker =
       // Absolute path to a per-worker debug log file. Undefined disables
       // worker-side logging (main keeps its own `debug.log`).
       logPath?: string;
+      // True when main has a real GraphClient. The worker only constructs
+      // the WorkerGraphClient stub (and registers query_graph/search_symbol
+      // tools) when this is true — otherwise those tools would call into a
+      // GraphBridge that always returns [] and waste agent tokens.
+      graphEnabled: boolean;
     }
   | {
       kind: "task";
