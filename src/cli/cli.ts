@@ -15,6 +15,14 @@ export function parseConcurrency(raw: string | undefined): number | undefined {
   return n;
 }
 
+export function parseWorkers(raw: string | undefined): number | "auto" | undefined {
+  if (raw === undefined) return undefined;
+  if (raw === "auto") return "auto";
+  const n = parseInt(raw, 10);
+  if (!Number.isFinite(n) || n < 1) return undefined;
+  return n;
+}
+
 export function run(): void {
   const program = new Command();
 
@@ -32,6 +40,8 @@ export function run(): void {
     .option("--max-steps <n>", "Max agent loop steps per finding")
     .option("--effort <level>", "Reasoning effort: low, medium, high")
     .option("--concurrency <n>", "Max concurrent agent loops for batch audit")
+    .option("--workers <n>", "Number of Bun Workers (1..16 or 'auto')")
+    .option("--worker-restart", "Respawn a crashed worker once and redrive its in-flight tasks")
     .option("--output <path>", "Consolidated findings-out.json path")
     .option("--no-log", "Disable debug logging (enabled by default)")
     .option("--langsmith", "Enable LangSmith tracing (or set LANGSMITH_TRACING=true)")
@@ -60,6 +70,7 @@ export function run(): void {
       const tomlConfig = projectConfig.hasConfig() ? projectConfig : undefined;
 
       const concurrency = parseConcurrency(opts.concurrency);
+      const workers = parseWorkers(opts.workers);
       const maxSteps = opts.maxSteps !== undefined ? parseInt(opts.maxSteps, 10) : undefined;
       const inputPath = opts.input ?? findingsPath;
 
@@ -72,6 +83,8 @@ export function run(): void {
         allowBash: opts.allowBash,
         maxSteps,
         concurrency,
+        workers,
+        workerRestart: opts.workerRestart === true ? true : undefined,
         outputPath: opts.output,
         reasoningEffort: opts.effort,
       }, tomlConfig);
