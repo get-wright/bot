@@ -123,7 +123,7 @@ export class TriageOrchestrator {
     });
   }
 
-  async run(config: AppConfig): Promise<void> {
+  async run(config: AppConfig, opts: { tracingEnabled?: boolean } = {}): Promise<void> {
     const { active, filtered, total } = this.loadFindings(config.findingsPath);
 
     if (total === 0) {
@@ -169,6 +169,48 @@ export class TriageOrchestrator {
         }),
       );
       console.error(`[graph] prefetched context for ${graphContexts.size}/${fresh.length} findings`);
+    }
+
+    if (config.workers > 1) {
+      const { WorkerPool } = await import("../worker/pool.js");
+      const { GraphBridge } = await import("../worker/graph-bridge.js");
+      const bridge = new GraphBridge(graphClient);
+      const pool = new WorkerPool({
+        size: config.workers,
+        factory: () => new Worker(new URL("../worker/entry.ts", import.meta.url)) as any,
+        serializedConfig: {
+          provider: config.provider,
+          model: config.model,
+          apiKey: config.apiKey,
+          baseUrl: config.baseUrl,
+          maxSteps: config.maxSteps,
+          allowBash: config.allowBash,
+          reasoningEffort: config.reasoningEffort,
+          concurrency: config.concurrency,
+        },
+        tracingEnabled: opts.tracingEnabled === true,
+        langsmithProject: process.env.LANGSMITH_PROJECT,
+        graphBridge: bridge,
+        workerRestart: config.workerRestart,
+        onEvent: (fp, event) => console.log(formatEvent(event, fp)),
+        onResult: (fp, result) => {
+          const item = fresh.find((x) => x.fingerprint === fp);
+          if (!item) return;
+          writer.append(toOutputRow(item.finding, item.fingerprint, result, new Date().toISOString()));
+        },
+      });
+      pool.enqueue(fresh.map((x) => ({
+        finding: x.finding,
+        fingerprint: x.fingerprint,
+        graphContext: graphContexts?.get(x.fingerprint),
+      })));
+      try {
+        await pool.run();
+      } finally {
+        if (graphClient) await graphClient.close().catch(() => {});
+      }
+      writer.flush();
+      return;
     }
 
     try {

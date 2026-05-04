@@ -52,9 +52,10 @@ export function run(): void {
         log.info("cli", "Debug logging enabled", { logPath });
       }
 
+      let tracingEnabled = false;
       if (opts.langsmith || hasLangSmithConfig()) {
-        const ok = await initTracing();
-        if (!ok && opts.langsmith) {
+        tracingEnabled = await initTracing();
+        if (!tracingEnabled && opts.langsmith) {
           console.error("LangSmith tracing requested but LANGSMITH_API_KEY is not set.");
           console.error("Set: LANGSMITH_API_KEY, LANGSMITH_TRACING=true, LANGSMITH_PROJECT");
           process.exit(1);
@@ -93,7 +94,7 @@ export function run(): void {
       const config = validateConfig(resolved);
 
       const orchestrator = new TriageOrchestrator();
-      await orchestrator.run(config);
+      await orchestrator.run(config, { tracingEnabled });
     });
 
   program.parse();
