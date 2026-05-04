@@ -14,6 +14,17 @@ function send(msg: FromWorker): void {
   postMessage(msg);
 }
 
+const STAGGER_MS = 500;
+let runningSlots = 0;
+let slotsRequested = 0;
+
+function tryRequestTask(): void {
+  if (!serializedConfig || aborted) return;
+  if (runningSlots + slotsRequested >= serializedConfig.concurrency) return;
+  slotsRequested++;
+  send({ kind: "request_task" });
+}
+
 async function runFinding(
   finding: import("../models/finding.js").Finding,
   fingerprint: string,
@@ -35,7 +46,6 @@ async function runFinding(
     onEvent: (event) => send({ kind: "event", fingerprint, event }),
   });
   send({ kind: "result", fingerprint, result });
-  if (!aborted) send({ kind: "request_task" });
 }
 
 self.onmessage = async (event: MessageEvent<ToWorker>) => {
@@ -49,7 +59,11 @@ self.onmessage = async (event: MessageEvent<ToWorker>) => {
         await initTracing();
       }
       send({ kind: "ready" });
-      send({ kind: "request_task" });
+      // Prime concurrency slots — pull one task per slot.
+      for (let i = 0; i < (serializedConfig?.concurrency ?? 1); i++) {
+        if (i > 0) await new Promise(r => setTimeout(r, STAGGER_MS));
+        tryRequestTask();
+      }
       return;
     }
     case "graph_response": {
@@ -76,20 +90,26 @@ self.onmessage = async (event: MessageEvent<ToWorker>) => {
         send({ kind: "fatal", error: "task before init" });
         return;
       }
-      runFinding(msg.finding, msg.fingerprint, msg.graphContext).catch((err: unknown) => {
-        const message = err instanceof Error ? err.message : String(err);
-        send({
-          kind: "result",
-          fingerprint: msg.fingerprint,
-          result: {
-            verdict: { verdict: "error", reasoning: message, key_evidence: [] },
-            toolCalls: [],
-            inputTokens: 0,
-            outputTokens: 0,
-          },
+      slotsRequested = Math.max(0, slotsRequested - 1);
+      runningSlots++;
+      runFinding(msg.finding, msg.fingerprint, msg.graphContext)
+        .catch((err: unknown) => {
+          const message = err instanceof Error ? err.message : String(err);
+          send({
+            kind: "result",
+            fingerprint: msg.fingerprint,
+            result: {
+              verdict: { verdict: "error", reasoning: message, key_evidence: [] },
+              toolCalls: [],
+              inputTokens: 0,
+              outputTokens: 0,
+            },
+          });
+        })
+        .finally(() => {
+          runningSlots--;
+          tryRequestTask();
         });
-        send({ kind: "request_task" });
-      });
       return;
     }
   }
