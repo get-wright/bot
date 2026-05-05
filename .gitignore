@@ -20,6 +20,13 @@ __pycache__/
 
 # Docs (specs, plans)
 docs/
+specs/
+
+# Local/generated artifacts
+findings-out.json
+opencode.json
+*.local.json
+*.local.md
 
 # IDE / tooling
 .claude/
