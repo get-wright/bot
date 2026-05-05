@@ -37,6 +37,15 @@ export async function prefetchGraphContext(
     pattern: "file_summary",
     target: finding.path,
   });
+  return prefetchGraphContextFromSummary(finding, graphClient, projectRoot, summary);
+}
+
+export async function prefetchGraphContextFromSummary(
+  finding: Finding,
+  graphClient: GraphClient,
+  projectRoot: string,
+  summary: NodeInfo[],
+): Promise<string | null> {
   if (summary.length === 0) return null;
 
   const initialRange = resolveEnclosingFunctionRangeFromSummary(finding, summary);

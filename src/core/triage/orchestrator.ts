@@ -6,9 +6,9 @@ import type { AgentEvent } from "../models/events.js";
 import type { AppConfig } from "../../cli/config.js";
 import type { AgentLoopResult } from "../agent/loop.js";
 import type { FollowUpExchange } from "../agent/follow-up.js";
-import { maybeCreateGraphClient, type GraphClient } from "../../infra/graph/index.js";
-import { prefetchGraphContext } from "../../infra/graph/prefetch.js";
-import { resolveEnclosingFunctionRange } from "../../infra/graph/function-range.js";
+import { maybeCreateGraphClient, type GraphClient, type NodeInfo } from "../../infra/graph/index.js";
+import { prefetchGraphContextFromSummary } from "../../infra/graph/prefetch.js";
+import { resolveEnclosingFunctionRangeFromSummary } from "../../infra/graph/function-range.js";
 import { parseSemgrepOutput, fingerprintFinding } from "../parser/semgrep.js";
 import { prefilterFinding } from "../parser/prefilter.js";
 import { runAgentLoop } from "../agent/loop.js";
@@ -182,9 +182,13 @@ export class TriageOrchestrator {
       await Promise.all(
         fresh.map(async (item) => {
           try {
+            const summary = await graphClient.queryGraph({
+              pattern: "file_summary",
+              target: item.finding.path,
+            });
             const [ctx, focused] = await Promise.all([
-              prefetchGraphContext(item.finding, graphClient, root),
-              resolveInitialFocusedRead(item.finding, graphClient, root),
+              prefetchGraphContextFromSummary(item.finding, graphClient, root, summary),
+              resolveInitialFocusedRead(item.finding, summary, root),
             ]);
             if (ctx) graphContexts!.set(item.fingerprint, ctx);
             if (focused) initialFocusedReads!.set(item.fingerprint, focused);
@@ -396,11 +400,10 @@ function resolveWorkerEntrySpec(): URL | string {
 
 async function resolveInitialFocusedRead(
   finding: Finding,
-  graphClient: GraphClient | null | undefined,
+  summary: NodeInfo[],
   projectRoot: string,
 ): Promise<InitialFocusedRead | null> {
-  if (!graphClient) return null;
-  const range = await resolveEnclosingFunctionRange(finding, graphClient).catch(() => null);
+  const range = resolveEnclosingFunctionRangeFromSummary(finding, summary);
   if (!range) return null;
 
   const registry: ReadRegistry = new Map();
