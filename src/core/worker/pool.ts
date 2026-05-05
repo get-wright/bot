@@ -180,6 +180,17 @@ export class WorkerPool {
     // exclude this slot.
     slot.expectedShutdown = true;
 
+    // Forcefully terminate the dying worker and detach its message handler
+    // so a still-alive worker (non-fatal `error` event, or `fatal` message
+    // before the worker self-exits) cannot keep pulling from the shared
+    // queue and steal tasks intended for the replacement slot.
+    slot.worker.onmessage = null;
+    try {
+      slot.worker.terminate();
+    } catch {
+      // ignore — terminate may throw if the worker already exited
+    }
+
     const restartAllowed = this.opts.workerRestart === true && slot.restartCount === 0;
 
     const drained = Array.from(slot.inFlight.entries());
