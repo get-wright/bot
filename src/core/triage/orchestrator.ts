@@ -8,10 +8,12 @@ import type { AgentLoopResult } from "../agent/loop.js";
 import type { FollowUpExchange } from "../agent/follow-up.js";
 import { maybeCreateGraphClient, type GraphClient } from "../../infra/graph/index.js";
 import { prefetchGraphContext } from "../../infra/graph/prefetch.js";
+import { resolveEnclosingFunctionRange } from "../../infra/graph/function-range.js";
 import { parseSemgrepOutput, fingerprintFinding } from "../parser/semgrep.js";
 import { prefilterFinding } from "../parser/prefilter.js";
 import { runAgentLoop } from "../agent/loop.js";
 import { runFollowUp } from "../agent/follow-up.js";
+import { createReadTool, type ReadRegistry, type ReadRegistrySeed } from "../agent/tools/read.js";
 import { OutputWriter, type OutputRow } from "../../infra/output/writer.js";
 import { formatEvent } from "../../infra/output/reporter.js";
 
@@ -58,10 +60,22 @@ export interface TriageOpts {
   onEvent: (event: AgentEvent) => void;
   graphClient?: GraphClient | null;
   graphContext?: string | null;
+  initialCodeContext?: string | null;
+  initialReadRegistrySeeds?: ReadRegistrySeed[];
+}
+
+interface InitialFocusedRead {
+  context: string;
+  seeds: ReadRegistrySeed[];
 }
 
 export interface TriageBatchOpts {
-  items: { finding: Finding; fingerprint: string }[];
+  items: {
+    finding: Finding;
+    fingerprint: string;
+    initialCodeContext?: string | null;
+    initialReadRegistrySeeds?: ReadRegistrySeed[];
+  }[];
   config: AppConfig;
   concurrency: number;
   onResult: (fingerprint: string, result: TriageResult) => void;
@@ -120,6 +134,8 @@ export class TriageOrchestrator {
       reasoningEffort: config.reasoningEffort,
       graphClient,
       graphContext,
+      initialCodeContext: opts.initialCodeContext ?? null,
+      initialReadRegistrySeeds: opts.initialReadRegistrySeeds,
     });
   }
 
@@ -158,20 +174,27 @@ export class TriageOrchestrator {
     // Optional: prefetch structural context per finding from the graph and
     // inject it into the system prompt to seed the agent's investigation.
     let graphContexts: Map<string, string> | undefined;
+    let initialFocusedReads: Map<string, InitialFocusedRead> | undefined;
     if (graphClient && process.env.SAST_GRAPH_PREFETCH === "1") {
       graphContexts = new Map();
+      initialFocusedReads = new Map();
       const root = process.cwd();
       await Promise.all(
         fresh.map(async (item) => {
           try {
-            const ctx = await prefetchGraphContext(item.finding, graphClient, root);
+            const [ctx, focused] = await Promise.all([
+              prefetchGraphContext(item.finding, graphClient, root),
+              resolveInitialFocusedRead(item.finding, graphClient, root),
+            ]);
             if (ctx) graphContexts!.set(item.fingerprint, ctx);
+            if (focused) initialFocusedReads!.set(item.fingerprint, focused);
           } catch {
-            // Best-effort — never fail triage because prefetch failed.
+            // Best-effort — never fail triage because prefetch/focused read failed.
           }
         }),
       );
       console.error(`[graph] prefetched context for ${graphContexts.size}/${fresh.length} findings`);
+      console.error(`[graph] focused initial reads for ${initialFocusedReads.size}/${fresh.length} findings`);
     }
 
     if (config.workers > 1) {
@@ -204,11 +227,16 @@ export class TriageOrchestrator {
           writer.append(toOutputRow(item.finding, item.fingerprint, result, new Date().toISOString()));
         },
       });
-      pool.enqueue(fresh.map((x) => ({
-        finding: x.finding,
-        fingerprint: x.fingerprint,
-        graphContext: graphContexts?.get(x.fingerprint),
-      })));
+      pool.enqueue(fresh.map((x) => {
+        const focused = initialFocusedReads?.get(x.fingerprint);
+        return {
+          finding: x.finding,
+          fingerprint: x.fingerprint,
+          graphContext: graphContexts?.get(x.fingerprint),
+          initialCodeContext: focused?.context ?? null,
+          initialReadRegistrySeeds: focused?.seeds,
+        };
+      }));
       try {
         await pool.run();
       } finally {
@@ -220,7 +248,14 @@ export class TriageOrchestrator {
 
     try {
       await this.triageBatch({
-        items: fresh,
+        items: fresh.map((x) => {
+          const focused = initialFocusedReads?.get(x.fingerprint);
+          return {
+            ...x,
+            initialCodeContext: focused?.context ?? null,
+            initialReadRegistrySeeds: focused?.seeds,
+          };
+        }),
         config,
         concurrency: config.concurrency ?? 1,
         onResult: (fingerprint, result) => {
@@ -276,6 +311,8 @@ export class TriageOrchestrator {
             onEvent: (event) => onEvent?.(item.fingerprint, event),
             graphClient,
             graphContext: graphContexts?.get(item.fingerprint) ?? null,
+            initialCodeContext: item.initialCodeContext ?? null,
+            initialReadRegistrySeeds: item.initialReadRegistrySeeds,
           })
             .then((result) => {
               onResult(item.fingerprint, result);
@@ -355,6 +392,31 @@ function resolveWorkerEntrySpec(): URL | string {
   return isCompiled
     ? "./core/worker/entry.ts"
     : new URL("../worker/entry.ts", import.meta.url);
+}
+
+async function resolveInitialFocusedRead(
+  finding: Finding,
+  graphClient: GraphClient | null | undefined,
+  projectRoot: string,
+): Promise<InitialFocusedRead | null> {
+  if (!graphClient) return null;
+  const range = await resolveEnclosingFunctionRange(finding, graphClient).catch(() => null);
+  if (!range) return null;
+
+  const registry: ReadRegistry = new Map();
+  const readTool = createReadTool({ projectRoot, registry, forceRegister: true });
+  const context = await readTool.execute({
+    path: range.path,
+    offset: range.readOffset,
+    limit: range.readLimit,
+  }).catch(() => null);
+
+  if (!context) return null;
+
+  return {
+    context,
+    seeds: [...registry.entries()].map(([absPath, entry]) => ({ absPath, entry })),
+  };
 }
 
 function toOutputRow(

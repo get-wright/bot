@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createReadTool } from "../../../../src/core/agent/tools/read.js";
+import { createReadTool, type ReadRegistry } from "../../../../src/core/agent/tools/read.js";
 
 function makeTempDir(): string {
   return mkdtempSync(join(tmpdir(), "sast-triage-read-"));
@@ -95,6 +95,25 @@ describe("createReadTool", () => {
     const result = await tool.execute({ path: "minified.js" });
     expect(result).toContain("[line truncated, 3000 chars total]");
     expect(result).not.toContain("x".repeat(2500));
+  });
+
+  it("forceRegister seeds tiny files and deduplicates repeated reads", async () => {
+    mkdirSync(join(root, "src"));
+    // Explicitly under DEDUP_MIN_BYTES (200 bytes).
+    writeFileSync(join(root, "src/app.js"), "a\nb\nc\n");
+
+    const registry: ReadRegistry = new Map();
+    const first = createReadTool({ projectRoot: root, registry, forceRegister: true });
+    const full = await first.execute({ path: "src/app.js", offset: 1, limit: 3 });
+    expect(full).toContain("1\ta");
+    expect(registry.size).toBe(1);
+
+    const seeds = [...registry.entries()].map(([absPath, entry]) => ({ absPath, entry }));
+    const seededRegistry: ReadRegistry = new Map(seeds.map((s) => [s.absPath, s.entry]));
+    const second = createReadTool({ projectRoot: root, registry: seededRegistry });
+    const stub = await second.execute({ path: "src/app.js", offset: 1, limit: 3 });
+
+    expect(stub).toContain("was already read");
   });
 
   describe("path confinement (no permissions)", () => {

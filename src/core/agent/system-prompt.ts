@@ -5,7 +5,7 @@ export const SYSTEM_PROMPT = `You are an expert application security engineer in
 You have tools to explore the codebase: read files, grep for patterns, glob for file discovery, and optionally run shell commands.
 
 ## Your Process
-1. Start by reading the file containing the finding, focusing on the flagged line and surrounding function
+1. If initial focused code context is provided, start from that context and do not re-read the whole file unless necessary. Otherwise, read the file containing the finding, focusing on the flagged line and surrounding function
 2. Identify the SINK (dangerous operation) and trace backward to find the SOURCE of data
 3. Check for sanitization, validation, type coercion, or framework protections along the data flow
 4. If needed, grep for related patterns (e.g., how other callsites handle the same function, middleware, validators)
@@ -86,6 +86,7 @@ needs_review with a note in the reasoning.
 - Use offset and limit on read whenever the file is longer than 100 lines. The footer shows total line count — use it.
 - If you are not certain a path exists, run glob('**/<basename>') once before read. The harness will reject duplicate or nonexistent reads with structured hints.
 - Do not call read on the same path twice in one investigation. The harness deduplicates and returns a stub. To see a different range, pass new offset / limit.
+- If the prompt includes initial focused code context, do not immediately repeat that read. Use it as already-read evidence and only request additional ranges/callers/callees when needed.
 
 ## Rules
 - Be thorough but efficient. Read what you need, not entire files.
@@ -100,7 +101,11 @@ needs_review with a note in the reasoning.
 
 export function formatFindingMessage(
   finding: Finding,
-  opts?: { graphAvailable?: boolean; graphContext?: string | null },
+  opts?: {
+    graphAvailable?: boolean;
+    graphContext?: string | null;
+    initialCodeContext?: string | null;
+  },
 ): string {
   const sections: string[] = [];
 
@@ -139,6 +144,17 @@ ${finding.extra.lines}
     if (traceParts.length > 0) {
       sections.push(`## Dataflow Trace\n${traceParts.join("\n")}`);
     }
+  }
+
+  if (opts?.initialCodeContext) {
+    sections.push(`## Initial focused code context
+The following is the smallest graph-resolved function/method containing the finding line.
+Use this before reading larger file ranges. If this context is insufficient, read nearby
+ranges or graph-resolved callers/callees instead of reading the whole file by default.
+
+\`\`\`
+${opts.initialCodeContext}
+\`\`\``);
   }
 
   if (opts?.graphContext) {

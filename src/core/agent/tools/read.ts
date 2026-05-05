@@ -53,10 +53,16 @@ export interface ReadEntry {
 
 export type ReadRegistry = Map<string, ReadEntry>;
 
+export interface ReadRegistrySeed {
+  absPath: string;
+  entry: ReadEntry;
+}
+
 export interface CreateReadToolOptions {
   projectRoot: string;
   registry?: ReadRegistry;
   getStep?: () => number;
+  forceRegister?: boolean;
 }
 
 export interface ReadToolInput {
@@ -91,6 +97,7 @@ export function createReadTool(opts: CreateReadToolOptions): ReadTool {
   const root = resolve(opts.projectRoot);
   const registry = opts.registry;
   const getStep = opts.getStep ?? (() => 0);
+  const forceRegister = opts.forceRegister === true;
 
   return {
     async execute(input: ReadToolInput): Promise<string> {
@@ -138,7 +145,7 @@ export function createReadTool(opts: CreateReadToolOptions): ReadTool {
       const wantEnd = Math.min(totalLines, wantStart - 1 + limit);
 
       const prior = registry?.get(abs);
-      const eligibleForDedup = registry && buf.length >= DEDUP_MIN_BYTES;
+      const eligibleForDedup = registry && (forceRegister || !!prior || buf.length >= DEDUP_MIN_BYTES);
       let modifiedNotice = "";
 
       if (eligibleForDedup && prior) {
