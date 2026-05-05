@@ -8,7 +8,7 @@ import { TriageVerdictSchema } from "../models/verdict.js";
 import { SYSTEM_PROMPT, formatFindingMessage } from "./system-prompt.js";
 import { DoomLoopDetector } from "./doom-loop.js";
 import { createTools } from "./tools/index.js";
-import type { PreferredReadRange, ReadRegistry, ReadRegistrySeed } from "./tools/read.js";
+import { normalizeReadInputForPreferredRange, type PreferredReadRange, type ReadRegistry, type ReadRegistrySeed } from "./tools/read.js";
 import { validateVerdict } from "./verdict-validator.js";
 import { resolveProvider } from "../../infra/providers/registry.js";
 import { resolveProviderOptions, type ReasoningEffort } from "../../infra/providers/reasoning.js";
@@ -258,7 +258,10 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
           log.info("tool", `${toolName}`, args);
           toolStartTimes.set(chunk.toolCallId, performance.now());
           onEvent({ type: "tool_start", tool: toolName, args });
-          doomLoop.record(toolName, args);
+          const doomLoopArgs = toolName === "read"
+            ? { ...normalizeReadInputForPreferredRange(args as { path: string; offset?: number; limit?: number }, config.preferredReadRange ?? undefined) }
+            : args;
+          doomLoop.record(toolName, doomLoopArgs);
 
           if (toolName === "verdict") {
             try {
@@ -383,7 +386,10 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
             const args = chunk.input as Record<string, unknown>;
             toolStartTimes.set(chunk.toolCallId, performance.now());
             onEvent({ type: "tool_start", tool: toolName, args });
-            doomLoop.record(toolName, args);
+            const doomLoopArgs = toolName === "read"
+              ? { ...normalizeReadInputForPreferredRange(args as { path: string; offset?: number; limit?: number }, config.preferredReadRange ?? undefined) }
+              : args;
+            doomLoop.record(toolName, doomLoopArgs);
             if (toolName === "verdict") {
               try { finalVerdict = TriageVerdictSchema.parse(args); } catch { /* invalid */ }
             } else {

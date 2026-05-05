@@ -53,6 +53,9 @@ type RunnerErrorResult = {
 
 export type TriageResult = AgentLoopResult | RunnerErrorResult;
 
+const FOCUSED_READ_PADDING_LINES = 20;
+const FOCUSED_READ_MIN_FILE_LINES = 300;
+
 export interface TriageOpts {
   finding: Finding;
   fingerprint: string;
@@ -415,8 +418,11 @@ export async function resolveFocusedReadPlan(
   summary: NodeInfo[],
   projectRoot: string,
 ): Promise<FocusedReadPlan | null> {
-  const range = resolveEnclosingFunctionRangeFromSummary(finding, summary);
+  const range = resolveEnclosingFunctionRangeFromSummary(finding, summary, FOCUSED_READ_PADDING_LINES);
   if (!range) return null;
+
+  const totalLines = countFileLines(resolve(projectRoot, finding.path));
+  if (totalLines < FOCUSED_READ_MIN_FILE_LINES) return null;
 
   const preferredReadRange = { path: range.path, offset: range.readOffset, limit: range.readLimit };
   const hint = JSON.stringify(preferredReadRange);
@@ -444,6 +450,13 @@ export async function resolveFocusedReadPlan(
     context,
     seeds: [...registry.entries()].map(([absPath, entry]) => ({ absPath, entry })),
   };
+}
+
+function countFileLines(absPath: string): number {
+  const text = readFileSync(absPath, "utf-8");
+  const lines = text.split("\n");
+  if (lines.at(-1) === "") lines.pop();
+  return lines.length;
 }
 
 function toOutputRow(

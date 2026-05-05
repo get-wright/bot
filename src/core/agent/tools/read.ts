@@ -82,6 +82,21 @@ export interface ReadTool {
   execute(input: ReadToolInput): Promise<string>;
 }
 
+export function normalizeReadInputForPreferredRange(
+  input: ReadToolInput,
+  preferredRange: PreferredReadRange | undefined,
+): ReadToolInput {
+  if (
+    preferredRange
+    && input.offset === undefined
+    && input.limit === undefined
+    && input.path === preferredRange.path
+  ) {
+    return { ...input, offset: preferredRange.offset, limit: preferredRange.limit };
+  }
+  return input;
+}
+
 function formatRanges(ranges: ServedRange[]): string {
   return ranges.map(r => r.start === r.end ? `${r.start}` : `${r.start}-${r.end}`).join(", ");
 }
@@ -109,15 +124,8 @@ export function createReadTool(opts: CreateReadToolOptions): ReadTool {
 
   return {
     async execute(input: ReadToolInput): Promise<string> {
+      input = normalizeReadInputForPreferredRange(input, preferredRange);
       const path = input.path;
-      if (
-        preferredRange
-        && input.offset === undefined
-        && input.limit === undefined
-        && path === preferredRange.path
-      ) {
-        input = { ...input, offset: preferredRange.offset, limit: preferredRange.limit };
-      }
       const abs = resolve(root, path);
       const rel = relative(root, abs);
       if (rel.startsWith("..") || rel === abs) {

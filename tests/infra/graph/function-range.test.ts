@@ -73,6 +73,15 @@ describe("resolveEnclosingFunctionRangeFromSummary", () => {
     expect(result?.lineEnd).toBe(25);
   });
 
+  it("applies line padding around the enclosing function", () => {
+    const result = resolveEnclosingFunctionRangeFromSummary(findingAt(60), [
+      node({ line_start: 50, line_end: 70 }),
+    ], 20);
+
+    expect(result?.readOffset).toBe(30);
+    expect(result?.readLimit).toBe(61);
+  });
+
   it("returns null when no function or method contains the finding line", () => {
     const result = resolveEnclosingFunctionRangeFromSummary(findingAt(80), [
       node({ line_start: 10, line_end: 30 }),

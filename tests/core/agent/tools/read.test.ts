@@ -2,11 +2,20 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createReadTool, type ReadRegistry } from "../../../../src/core/agent/tools/read.js";
+import { createReadTool, normalizeReadInputForPreferredRange, type ReadRegistry } from "../../../../src/core/agent/tools/read.js";
 
 function makeTempDir(): string {
   return mkdtempSync(join(tmpdir(), "sast-triage-read-"));
 }
+
+describe("normalizeReadInputForPreferredRange", () => {
+  it("returns post-intercept args for doom-loop accounting", () => {
+    expect(normalizeReadInputForPreferredRange(
+      { path: "src/app.js" },
+      { path: "src/app.js", offset: 10, limit: 20 },
+    )).toEqual({ path: "src/app.js", offset: 10, limit: 20 });
+  });
+});
 
 describe("createReadTool", () => {
   let root: string;
