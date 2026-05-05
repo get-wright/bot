@@ -3,6 +3,7 @@ import type { AgentEvent } from "../models/events.js";
 import type { TriageResult } from "../triage/orchestrator.js";
 import type { GraphBridge } from "./graph-bridge.js";
 import type { FromWorker, SerializedConfig, ToWorker } from "./protocol.js";
+import type { ReadRegistrySeed } from "../agent/tools/read.js";
 
 export interface WorkerLike {
   postMessage(msg: ToWorker): void;
@@ -29,10 +30,18 @@ export interface WorkerPoolOptions {
   logBaseDir?: string;
 }
 
+interface WorkerTask {
+  finding: Finding;
+  fingerprint: string;
+  graphContext?: string;
+  initialCodeContext?: string | null;
+  initialReadRegistrySeeds?: ReadRegistrySeed[];
+}
+
 interface Slot {
   id: number;
   worker: WorkerLike;
-  inFlight: Map<string, { finding: Finding; graphContext?: string }>;
+  inFlight: Map<string, WorkerTask>;
   expectedShutdown: boolean;
   restartCount: number;
 }
@@ -40,7 +49,7 @@ interface Slot {
 export class WorkerPool {
   private slots: Slot[] = [];
   private opts: WorkerPoolOptions;
-  private queue: Array<{ finding: Finding; fingerprint: string; graphContext?: string }> = [];
+  private queue: WorkerTask[] = [];
   private resolveDone: (() => void) | null = null;
   private aborted = false;
 
@@ -48,7 +57,7 @@ export class WorkerPool {
     this.opts = opts;
   }
 
-  enqueue(tasks: Array<{ finding: Finding; fingerprint: string; graphContext?: string }>): void {
+  enqueue(tasks: WorkerTask[]): void {
     this.queue.push(...tasks);
   }
 
@@ -144,12 +153,14 @@ export class WorkerPool {
           this.checkDone();
           return;
         }
-        slot.inFlight.set(next.fingerprint, { finding: next.finding, graphContext: next.graphContext });
+        slot.inFlight.set(next.fingerprint, next);
         slot.worker.postMessage({
           kind: "task",
           finding: next.finding,
           fingerprint: next.fingerprint,
           graphContext: next.graphContext,
+          initialCodeContext: next.initialCodeContext ?? null,
+          initialReadRegistrySeeds: next.initialReadRegistrySeeds,
         });
         return;
       }
@@ -228,8 +239,8 @@ export class WorkerPool {
       return;
     }
 
-    for (const [fp, payload] of drained.reverse()) {
-      this.queue.unshift({ finding: payload.finding, fingerprint: fp, graphContext: payload.graphContext });
+    for (const [, payload] of drained.reverse()) {
+      this.queue.unshift(payload);
     }
     slot.restartCount++;
     this.spawnSlot(slot.id, slot.restartCount);

@@ -6,6 +6,7 @@ import { initTracing } from "../../infra/tracing.js";
 import { initLogger, log } from "../../infra/logger.js";
 import { WorkerGraphClient } from "./graph-stub.js";
 import { runAgentLoop } from "../agent/loop.js";
+import type { ReadRegistrySeed } from "../agent/tools/read.js";
 
 let workerId = -1;
 let serializedConfig: SerializedConfig | null = null;
@@ -31,6 +32,8 @@ async function runFinding(
   finding: import("../models/finding.js").Finding,
   fingerprint: string,
   graphContext?: string,
+  initialCodeContext?: string | null,
+  initialReadRegistrySeeds?: ReadRegistrySeed[],
 ): Promise<void> {
   if (!serializedConfig) throw new Error("worker not initialized");
   const result = await runAgentLoop({
@@ -45,6 +48,8 @@ async function runFinding(
     reasoningEffort: serializedConfig.reasoningEffort,
     graphClient: graphStub,
     graphContext,
+    initialCodeContext: initialCodeContext ?? null,
+    initialReadRegistrySeeds,
     onEvent: (event) => send({ kind: "event", fingerprint, event }),
   });
   send({ kind: "result", fingerprint, result });
@@ -112,7 +117,13 @@ self.onmessage = async (event: MessageEvent<ToWorker>) => {
       }
       slotsRequested = Math.max(0, slotsRequested - 1);
       runningSlots++;
-      runFinding(msg.finding, msg.fingerprint, msg.graphContext)
+      runFinding(
+        msg.finding,
+        msg.fingerprint,
+        msg.graphContext,
+        msg.initialCodeContext ?? null,
+        msg.initialReadRegistrySeeds,
+      )
         .catch((err: unknown) => {
           const message = err instanceof Error ? err.message : String(err);
           send({
