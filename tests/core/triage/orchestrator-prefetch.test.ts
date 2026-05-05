@@ -13,7 +13,55 @@ vi.mock("../../../src/infra/graph/index.js", async (importOriginal) => {
 });
 
 const { maybeCreateGraphClient } = await import("../../../src/infra/graph/index.js");
-const { TriageOrchestrator } = await import("../../../src/core/triage/orchestrator.js");
+const { TriageOrchestrator, resolveFocusedReadPlan } = await import("../../../src/core/triage/orchestrator.js");
+
+describe("resolveFocusedReadPlan", () => {
+  const originalPrefetchContext = process.env.SAST_FOCUSED_READ_CONTEXT;
+
+  afterEach(() => {
+    if (originalPrefetchContext === undefined) {
+      delete process.env.SAST_FOCUSED_READ_CONTEXT;
+    } else {
+      process.env.SAST_FOCUSED_READ_CONTEXT = originalPrefetchContext;
+    }
+  });
+
+  it("returns hint, context, and registry seeds when focused context injection is explicitly enabled", async () => {
+    const root = mkdtempSync(join(tmpdir(), "sast-triage-focused-context-"));
+    mkdirSync(join(root, "src"));
+    writeFileSync(join(root, "src/example.ts"), "one\ntwo\nthree\nfour\n");
+    process.env.SAST_FOCUSED_READ_CONTEXT = "1";
+
+    const summary: NodeInfo[] = [{
+      name: "handler",
+      qualified_name: "src/example.ts::handler",
+      kind: "Function",
+      file_path: join(root, "src/example.ts"),
+      line_start: 2,
+      line_end: 3,
+    } as NodeInfo];
+
+    const plan = await resolveFocusedReadPlan({
+      check_id: "test.rule",
+      path: "src/example.ts",
+      start: { line: 2, col: 1, offset: 0 },
+      end: { line: 2, col: 10, offset: 0 },
+      extra: {
+        message: "test finding",
+        severity: "WARNING",
+        lines: "two",
+        metadata: { cwe: ["CWE-95"] },
+      },
+    } as any, summary, root);
+
+    expect(plan).toMatchObject({
+      hint: '{"path":"src/example.ts","offset":2,"limit":2}',
+      range: { path: "src/example.ts", offset: 2, limit: 2 },
+    });
+    expect(plan!.context).toContain("2\ttwo");
+    expect(plan!.seeds?.length).toBe(1);
+  });
+});
 
 describe("TriageOrchestrator graph prefetch", () => {
   const originalCwd = process.cwd();
@@ -95,7 +143,8 @@ describe("TriageOrchestrator graph prefetch", () => {
     );
     expect(fileSummaryCalls).toHaveLength(1);
     const batchArg = vi.mocked(orchestrator.triageBatch).mock.calls[0]![0];
-    expect(batchArg.items[0]!.focusedReadHint).toBe('read("src/example.ts", offset=10, limit=11)');
+    expect(batchArg.items[0]!.focusedReadHint).toBe('{"path":"src/example.ts","offset":10,"limit":11}');
+    expect(batchArg.items[0]!.preferredReadRange).toEqual({ path: "src/example.ts", offset: 10, limit: 11 });
     expect(batchArg.items[0]!.initialCodeContext).toBeNull();
     expect(batchArg.items[0]!.initialReadRegistrySeeds).toBeUndefined();
   });

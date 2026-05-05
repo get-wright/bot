@@ -5,7 +5,10 @@ export const SYSTEM_PROMPT = `You are an expert application security engineer in
 You have tools to explore the codebase: read files, grep for patterns, glob for file discovery, and optionally run shell commands.
 
 ## Your Process
-1. If a suggested focused read is provided, call that exact read before reading the whole file. If initial focused code context is provided, start from that context and do not re-read the whole file unless necessary. Otherwise, read the file containing the finding, focusing on the flagged line and surrounding function
+1. For the first read:
+   - If a suggested focused read JSON object is provided, call read with exactly those arguments.
+   - Else if initial focused code context is provided, use it as already-read evidence.
+   - Else read the finding file around the flagged line and surrounding function.
 2. Identify the SINK (dangerous operation) and trace backward to find the SOURCE of data
 3. Check for sanitization, validation, type coercion, or framework protections along the data flow
 4. If needed, grep for related patterns (e.g., how other callsites handle the same function, middleware, validators)
@@ -151,9 +154,11 @@ ${finding.extra.lines}
   if (opts?.focusedReadHint) {
     sections.push(`## Suggested focused read
 The code graph found the smallest function/method containing the finding line.
-Start with this exact read instead of reading the whole file:
+Call the read tool with this exact JSON input instead of reading the whole file:
 
-${opts.focusedReadHint}`);
+\`\`\`json
+${opts.focusedReadHint}
+\`\`\``);
   }
 
   if (opts?.initialCodeContext) {

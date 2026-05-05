@@ -6,7 +6,7 @@ import { initTracing } from "../../infra/tracing.js";
 import { initLogger, log } from "../../infra/logger.js";
 import { WorkerGraphClient } from "./graph-stub.js";
 import { runAgentLoop } from "../agent/loop.js";
-import type { ReadRegistrySeed } from "../agent/tools/read.js";
+import type { PreferredReadRange, ReadRegistrySeed } from "../agent/tools/read.js";
 
 let workerId = -1;
 let serializedConfig: SerializedConfig | null = null;
@@ -35,6 +35,7 @@ async function runFinding(
   initialCodeContext?: string | null,
   initialReadRegistrySeeds?: ReadRegistrySeed[],
   focusedReadHint?: string | null,
+  preferredReadRange?: PreferredReadRange | null,
 ): Promise<void> {
   if (!serializedConfig) throw new Error("worker not initialized");
   const result = await runAgentLoop({
@@ -52,6 +53,7 @@ async function runFinding(
     initialCodeContext: initialCodeContext ?? null,
     initialReadRegistrySeeds,
     focusedReadHint: focusedReadHint ?? null,
+    preferredReadRange: preferredReadRange ?? null,
     onEvent: (event) => send({ kind: "event", fingerprint, event }),
   });
   send({ kind: "result", fingerprint, result });
@@ -126,6 +128,7 @@ self.onmessage = async (event: MessageEvent<ToWorker>) => {
         msg.initialCodeContext ?? null,
         msg.initialReadRegistrySeeds,
         msg.focusedReadHint ?? null,
+        msg.preferredReadRange ?? null,
       )
         .catch((err: unknown) => {
           const message = err instanceof Error ? err.message : String(err);

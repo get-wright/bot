@@ -13,7 +13,7 @@ import { parseSemgrepOutput, fingerprintFinding } from "../parser/semgrep.js";
 import { prefilterFinding } from "../parser/prefilter.js";
 import { runAgentLoop } from "../agent/loop.js";
 import { runFollowUp } from "../agent/follow-up.js";
-import { createReadTool, type ReadRegistry, type ReadRegistrySeed } from "../agent/tools/read.js";
+import { createReadTool, type PreferredReadRange, type ReadRegistry, type ReadRegistrySeed } from "../agent/tools/read.js";
 import { OutputWriter, type OutputRow } from "../../infra/output/writer.js";
 import { formatEvent } from "../../infra/output/reporter.js";
 
@@ -63,10 +63,12 @@ export interface TriageOpts {
   initialCodeContext?: string | null;
   initialReadRegistrySeeds?: ReadRegistrySeed[];
   focusedReadHint?: string | null;
+  preferredReadRange?: PreferredReadRange | null;
 }
 
 interface FocusedReadPlan {
   hint: string;
+  range: PreferredReadRange;
   context?: string | null;
   seeds?: ReadRegistrySeed[];
 }
@@ -78,6 +80,7 @@ export interface TriageBatchOpts {
     initialCodeContext?: string | null;
     initialReadRegistrySeeds?: ReadRegistrySeed[];
     focusedReadHint?: string | null;
+    preferredReadRange?: PreferredReadRange | null;
   }[];
   config: AppConfig;
   concurrency: number;
@@ -140,6 +143,7 @@ export class TriageOrchestrator {
       initialCodeContext: opts.initialCodeContext ?? null,
       initialReadRegistrySeeds: opts.initialReadRegistrySeeds,
       focusedReadHint: opts.focusedReadHint ?? null,
+      preferredReadRange: opts.preferredReadRange ?? null,
     });
   }
 
@@ -242,6 +246,7 @@ export class TriageOrchestrator {
           initialCodeContext: focused?.context ?? null,
           initialReadRegistrySeeds: focused?.seeds,
           focusedReadHint: focused?.hint ?? null,
+          preferredReadRange: focused?.range ?? null,
         };
       }));
       try {
@@ -262,6 +267,7 @@ export class TriageOrchestrator {
             initialCodeContext: focused?.context ?? null,
             initialReadRegistrySeeds: focused?.seeds,
             focusedReadHint: focused?.hint ?? null,
+            preferredReadRange: focused?.range ?? null,
           };
         }),
         config,
@@ -322,6 +328,7 @@ export class TriageOrchestrator {
             initialCodeContext: item.initialCodeContext ?? null,
             initialReadRegistrySeeds: item.initialReadRegistrySeeds,
             focusedReadHint: item.focusedReadHint ?? null,
+            preferredReadRange: item.preferredReadRange ?? null,
           })
             .then((result) => {
               onResult(item.fingerprint, result);
@@ -403,7 +410,7 @@ function resolveWorkerEntrySpec(): URL | string {
     : new URL("../worker/entry.ts", import.meta.url);
 }
 
-async function resolveFocusedReadPlan(
+export async function resolveFocusedReadPlan(
   finding: Finding,
   summary: NodeInfo[],
   projectRoot: string,
@@ -411,13 +418,14 @@ async function resolveFocusedReadPlan(
   const range = resolveEnclosingFunctionRangeFromSummary(finding, summary);
   if (!range) return null;
 
-  const hint = `read("${range.path}", offset=${range.readOffset}, limit=${range.readLimit})`;
+  const preferredReadRange = { path: range.path, offset: range.readOffset, limit: range.readLimit };
+  const hint = JSON.stringify(preferredReadRange);
 
   // Full focused-code injection is useful for experiments but is not the
   // default: user-message context is replayed across model steps and caused
   // input-token regressions in E2E runs. Default to the cheap exact read hint.
   if (process.env.SAST_FOCUSED_READ_CONTEXT !== "1") {
-    return { hint };
+    return { hint, range: preferredReadRange };
   }
 
   const registry: ReadRegistry = new Map();
@@ -428,10 +436,11 @@ async function resolveFocusedReadPlan(
     limit: range.readLimit,
   }).catch(() => null);
 
-  if (!context) return { hint };
+  if (!context) return { hint, range: preferredReadRange };
 
   return {
     hint,
+    range: preferredReadRange,
     context,
     seeds: [...registry.entries()].map(([absPath, entry]) => ({ absPath, entry })),
   };

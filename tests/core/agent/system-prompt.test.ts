@@ -21,11 +21,11 @@ function finding(): Finding {
 describe("formatFindingMessage", () => {
   it("includes a focused read hint without injecting code", () => {
     const message = formatFindingMessage(finding(), {
-      focusedReadHint: 'read("src/server.js", offset=15, limit=11)',
+      focusedReadHint: '{"path":"src/server.js","offset":15,"limit":11}',
     });
 
     expect(message).toContain("## Suggested focused read");
-    expect(message).toContain('read("src/server.js", offset=15, limit=11)');
+    expect(message).toContain('{"path":"src/server.js","offset":15,"limit":11}');
     expect(message).not.toContain("## Initial focused code context");
     expect(message).not.toContain("eval(input);");
   });
@@ -48,7 +48,8 @@ describe("formatFindingMessage", () => {
 
 describe("SYSTEM_PROMPT", () => {
   it("instructs the model to use focused read hints instead of whole-file reads", () => {
-    expect(SYSTEM_PROMPT).toContain("If a suggested focused read is provided");
-    expect(SYSTEM_PROMPT).toContain("call that exact read before reading the whole file");
+    expect(SYSTEM_PROMPT).toContain("For the first read:");
+    expect(SYSTEM_PROMPT).toContain("If a suggested focused read JSON object is provided");
+    expect(SYSTEM_PROMPT).toContain("call read with exactly those arguments");
   });
 });

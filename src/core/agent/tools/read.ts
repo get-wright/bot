@@ -58,11 +58,18 @@ export interface ReadRegistrySeed {
   entry: ReadEntry;
 }
 
+export interface PreferredReadRange {
+  path: string;
+  offset: number;
+  limit: number;
+}
+
 export interface CreateReadToolOptions {
   projectRoot: string;
   registry?: ReadRegistry;
   getStep?: () => number;
   forceRegister?: boolean;
+  preferredRange?: PreferredReadRange;
 }
 
 export interface ReadToolInput {
@@ -98,10 +105,19 @@ export function createReadTool(opts: CreateReadToolOptions): ReadTool {
   const registry = opts.registry;
   const getStep = opts.getStep ?? (() => 0);
   const forceRegister = opts.forceRegister === true;
+  const preferredRange = opts.preferredRange;
 
   return {
     async execute(input: ReadToolInput): Promise<string> {
-      const { path } = input;
+      const path = input.path;
+      if (
+        preferredRange
+        && input.offset === undefined
+        && input.limit === undefined
+        && path === preferredRange.path
+      ) {
+        input = { ...input, offset: preferredRange.offset, limit: preferredRange.limit };
+      }
       const abs = resolve(root, path);
       const rel = relative(root, abs);
       if (rel.startsWith("..") || rel === abs) {

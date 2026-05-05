@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { tool, type ToolSet } from "ai";
 import { createReadTool } from "./read.js";
-import type { ReadRegistry } from "./read.js";
+import type { PreferredReadRange, ReadRegistry } from "./read.js";
 import { createGrepTool } from "./grep.js";
 import { createGlobTool } from "./glob.js";
 import { createBashTool } from "./bash.js";
@@ -15,6 +15,7 @@ export interface ToolConfig {
   readRegistry?: ReadRegistry;
   getStep?: () => number;
   graphClient?: GraphClient | null;
+  preferredReadRange?: PreferredReadRange;
 }
 
 export function createTools(config: ToolConfig): ToolSet {
@@ -22,6 +23,7 @@ export function createTools(config: ToolConfig): ToolSet {
     projectRoot: config.projectRoot,
     registry: config.readRegistry,
     getStep: config.getStep,
+    preferredRange: config.preferredReadRange,
   });
   const grepImpl = createGrepTool(config.projectRoot);
   const globImpl = createGlobTool(config.projectRoot);

@@ -2,7 +2,7 @@ import type { Finding } from "../models/finding.js";
 import type { AgentEvent } from "../models/events.js";
 import type { NodeInfo, QueryGraphArgs, SearchSymbolArgs } from "../../infra/graph/types.js";
 import type { TriageResult } from "../triage/orchestrator.js";
-import type { ReadRegistrySeed } from "../agent/tools/read.js";
+import type { PreferredReadRange, ReadRegistrySeed } from "../agent/tools/read.js";
 
 export type GraphMethod = "queryGraph" | "searchSymbol";
 
@@ -41,6 +41,7 @@ export type ToWorker =
       initialCodeContext?: string | null;
       initialReadRegistrySeeds?: ReadRegistrySeed[];
       focusedReadHint?: string | null;
+      preferredReadRange?: PreferredReadRange | null;
     }
   | {
       kind: "graph_response";
