@@ -30,6 +30,7 @@ export interface AgentLoopConfig {
   graphContext?: string | null;
   initialCodeContext?: string | null;
   initialReadRegistrySeeds?: ReadRegistrySeed[];
+  focusedReadHint?: string | null;
 }
 
 export interface AgentLoopResult {
@@ -193,6 +194,7 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
     graphAvailable: !!config.graphClient,
     graphContext: config.graphContext ?? null,
     initialCodeContext: config.initialCodeContext ?? null,
+    focusedReadHint: config.focusedReadHint ?? null,
   });
 
   const providerOptions = config.reasoningEffort

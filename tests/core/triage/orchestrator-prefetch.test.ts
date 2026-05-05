@@ -94,5 +94,9 @@ describe("TriageOrchestrator graph prefetch", () => {
       ([args]) => args.pattern === "file_summary" && args.target === "src/example.ts",
     );
     expect(fileSummaryCalls).toHaveLength(1);
+    const batchArg = vi.mocked(orchestrator.triageBatch).mock.calls[0]![0];
+    expect(batchArg.items[0]!.focusedReadHint).toBe('read("src/example.ts", offset=10, limit=11)');
+    expect(batchArg.items[0]!.initialCodeContext).toBeNull();
+    expect(batchArg.items[0]!.initialReadRegistrySeeds).toBeUndefined();
   });
 });

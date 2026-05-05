@@ -36,6 +36,7 @@ interface WorkerTask {
   graphContext?: string;
   initialCodeContext?: string | null;
   initialReadRegistrySeeds?: ReadRegistrySeed[];
+  focusedReadHint?: string | null;
 }
 
 interface Slot {
@@ -161,6 +162,7 @@ export class WorkerPool {
           graphContext: next.graphContext,
           initialCodeContext: next.initialCodeContext ?? null,
           initialReadRegistrySeeds: next.initialReadRegistrySeeds,
+          focusedReadHint: next.focusedReadHint ?? null,
         });
         return;
       }

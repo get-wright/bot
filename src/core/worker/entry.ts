@@ -34,6 +34,7 @@ async function runFinding(
   graphContext?: string,
   initialCodeContext?: string | null,
   initialReadRegistrySeeds?: ReadRegistrySeed[],
+  focusedReadHint?: string | null,
 ): Promise<void> {
   if (!serializedConfig) throw new Error("worker not initialized");
   const result = await runAgentLoop({
@@ -50,6 +51,7 @@ async function runFinding(
     graphContext,
     initialCodeContext: initialCodeContext ?? null,
     initialReadRegistrySeeds,
+    focusedReadHint: focusedReadHint ?? null,
     onEvent: (event) => send({ kind: "event", fingerprint, event }),
   });
   send({ kind: "result", fingerprint, result });
@@ -123,6 +125,7 @@ self.onmessage = async (event: MessageEvent<ToWorker>) => {
         msg.graphContext,
         msg.initialCodeContext ?? null,
         msg.initialReadRegistrySeeds,
+        msg.focusedReadHint ?? null,
       )
         .catch((err: unknown) => {
           const message = err instanceof Error ? err.message : String(err);

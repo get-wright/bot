@@ -40,6 +40,7 @@ export type ToWorker =
       graphContext?: string;
       initialCodeContext?: string | null;
       initialReadRegistrySeeds?: ReadRegistrySeed[];
+      focusedReadHint?: string | null;
     }
   | {
       kind: "graph_response";
