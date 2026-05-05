@@ -37,7 +37,7 @@ export function run(): void {
   program
     .name("sast-triage")
     .description("Agentic SAST finding triage via LLM-driven codebase exploration (headless)")
-    .version("0.1.7")
+    .version("0.2.0")
     .argument("[findings]", "Path to Semgrep JSON file (or use --input / SAST_FINDINGS)")
     .option("--input <path>", "Path to Semgrep JSON file (alias for positional arg, or set SAST_FINDINGS)")
     .option("--provider <provider>", "LLM provider (openai, anthropic, google, openrouter, fpt)")
