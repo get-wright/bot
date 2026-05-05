@@ -70,6 +70,7 @@ describe("prefetchGraphContext", () => {
     expect(out).not.toBeNull();
     expect(out).toContain("File contains 2 symbols");
     expect(out).toContain("Enclosing function:");
+    expect(out).toContain("/repo/app/foo.js::handler");
     expect(out).toContain("Call paths to sink");
     // Path renders as "wireRoutes -> handler"
     expect(out).toMatch(/wireRoutes.*->.*handler/);

@@ -8,7 +8,7 @@ import { TriageVerdictSchema } from "../models/verdict.js";
 import { SYSTEM_PROMPT, formatFindingMessage } from "./system-prompt.js";
 import { DoomLoopDetector } from "./doom-loop.js";
 import { createTools } from "./tools/index.js";
-import type { ReadRegistry } from "./tools/read.js";
+import type { ReadRegistry, ReadRegistrySeed } from "./tools/read.js";
 import { validateVerdict } from "./verdict-validator.js";
 import { resolveProvider } from "../../infra/providers/registry.js";
 import { resolveProviderOptions, type ReasoningEffort } from "../../infra/providers/reasoning.js";
@@ -28,6 +28,8 @@ export interface AgentLoopConfig {
   reasoningEffort?: ReasoningEffort;
   graphClient?: GraphClient | null;
   graphContext?: string | null;
+  initialCodeContext?: string | null;
+  initialReadRegistrySeeds?: ReadRegistrySeed[];
 }
 
 export interface AgentLoopResult {
@@ -154,7 +156,9 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
 
   const languageModel = resolveProvider(provider, modelId, config.apiKey, config.baseUrl);
 
-  const readRegistry: ReadRegistry = new Map();
+  const readRegistry: ReadRegistry = new Map(
+    (config.initialReadRegistrySeeds ?? []).map((seed) => [seed.absPath, seed.entry]),
+  );
   let currentStep = 0;
   const tools = createTools({
     projectRoot,
@@ -173,7 +177,13 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
   let accumulatedText = "";
   // Capture tool calls and token usage for inclusion in findings-out.json.
   const capturedToolCalls: { tool: string; args: Record<string, unknown> }[] = [];
+  const initialReadOutput = config.initialCodeContext ?? null;
   const capturedReadOutputs: string[] = [];
+  const resetCapturedReadOutputs = () => {
+    capturedReadOutputs.length = 0;
+    if (initialReadOutput) capturedReadOutputs.push(initialReadOutput);
+  };
+  resetCapturedReadOutputs();
   let capturedInputTokens = 0;
   let capturedOutputTokens = 0;
   // Track tool call start times for duration measurement
@@ -182,6 +192,7 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
   const userMessage = formatFindingMessage(finding, {
     graphAvailable: !!config.graphClient,
     graphContext: config.graphContext ?? null,
+    initialCodeContext: config.initialCodeContext ?? null,
   });
 
   const providerOptions = config.reasoningEffort
@@ -329,7 +340,7 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
     // Reset state for retry
     accumulatedText = "";
     finalVerdict = null;
-    capturedReadOutputs.length = 0;
+    resetCapturedReadOutputs();
 
     const retryResult = streamText({
       model: languageModel,

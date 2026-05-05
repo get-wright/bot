@@ -126,6 +126,52 @@ describe("WorkerPool spawn", () => {
 });
 
 describe("WorkerPool dispatch", () => {
+  it("on request_task, sends focused read fields with next queued task", async () => {
+    const factory = vi.fn(() => makeFakeWorker());
+    const pool = new WorkerPool({
+      size: 1,
+      factory: factory as any,
+      serializedConfig: config,
+      tracingEnabled: false,
+      onEvent: () => {},
+      onResult: () => {},
+      graphBridge: null as any,
+    });
+
+    const seed = {
+      absPath: "/repo/src/app.js",
+      entry: {
+        hash: "abc123",
+        step: 0,
+        mtimeMs: 1,
+        totalLines: 20,
+        byteCappedTruncated: false,
+        servedRanges: [{ start: 10, end: 20 }],
+      },
+    };
+    const finding = { check_id: "rule-1" } as any;
+    pool.enqueue([{
+      finding,
+      fingerprint: "fp-focused",
+      initialCodeContext: "10\tfunction handler() {}",
+      initialReadRegistrySeeds: [seed],
+    }]);
+    pool.start();
+
+    const w = factory.mock.results[0].value;
+    w._msgFromWorker({ kind: "request_task" });
+
+    const taskCall = w.postMessage.mock.calls.find(
+      (c: any[]) => c[0].kind === "task",
+    );
+    expect(taskCall).toBeDefined();
+    expect(taskCall![0]).toMatchObject({
+      fingerprint: "fp-focused",
+      initialCodeContext: "10\tfunction handler() {}",
+      initialReadRegistrySeeds: [seed],
+    });
+  });
+
   it("on request_task, sends next queued task", async () => {
     const factory = vi.fn(() => makeFakeWorker());
     const pool = new WorkerPool({
@@ -287,6 +333,58 @@ describe("WorkerPool crash handling", () => {
         verdict: expect.objectContaining({ verdict: "error" }),
       }),
     );
+  });
+
+  it("with workerRestart=true, preserves focused read fields when redriving in-flight task", () => {
+    const onResult = vi.fn();
+    const workers: any[] = [];
+    const factory = vi.fn(() => {
+      const w = makeFakeWorker();
+      workers.push(w);
+      return w;
+    });
+    const pool = new WorkerPool({
+      size: 1,
+      factory: factory as any,
+      serializedConfig: config,
+      tracingEnabled: false,
+      onEvent: () => {},
+      onResult,
+      graphBridge: null as any,
+      workerRestart: true,
+    });
+
+    const seed = {
+      absPath: "/repo/src/app.js",
+      entry: {
+        hash: "abc123",
+        step: 0,
+        mtimeMs: 1,
+        totalLines: 20,
+        byteCappedTruncated: false,
+        servedRanges: [{ start: 10, end: 20 }],
+      },
+    };
+    const finding = { check_id: "r" } as any;
+    pool.enqueue([{
+      finding,
+      fingerprint: "fp-redrive-focused",
+      initialCodeContext: "10\tfunction handler() {}",
+      initialReadRegistrySeeds: [seed],
+    }]);
+    pool.start();
+
+    workers[0]._msgFromWorker({ kind: "request_task" });
+    workers[0]._emit("close", { code: 1 });
+
+    expect(factory).toHaveBeenCalledTimes(2);
+    workers[1]._msgFromWorker({ kind: "request_task" });
+    const taskCall = workers[1].postMessage.mock.calls.find((c: any[]) => c[0].kind === "task");
+    expect(taskCall![0]).toMatchObject({
+      fingerprint: "fp-redrive-focused",
+      initialCodeContext: "10\tfunction handler() {}",
+      initialReadRegistrySeeds: [seed],
+    });
   });
 
   it("with workerRestart=true, redrives in-flight task once", () => {
