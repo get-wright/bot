@@ -8,7 +8,7 @@ import { TriageVerdictSchema } from "../models/verdict.js";
 import { SYSTEM_PROMPT, formatFindingMessage } from "./system-prompt.js";
 import { DoomLoopDetector } from "./doom-loop.js";
 import { createTools } from "./tools/index.js";
-import type { ReadRegistry, ReadRegistrySeed } from "./tools/read.js";
+import { normalizeReadInputForPreferredRange, type PreferredReadRange, type ReadRegistry, type ReadRegistrySeed } from "./tools/read.js";
 import { validateVerdict } from "./verdict-validator.js";
 import { resolveProvider } from "../../infra/providers/registry.js";
 import { resolveProviderOptions, type ReasoningEffort } from "../../infra/providers/reasoning.js";
@@ -30,6 +30,8 @@ export interface AgentLoopConfig {
   graphContext?: string | null;
   initialCodeContext?: string | null;
   initialReadRegistrySeeds?: ReadRegistrySeed[];
+  focusedReadHint?: string | null;
+  preferredReadRange?: PreferredReadRange | null;
 }
 
 export interface AgentLoopResult {
@@ -166,6 +168,7 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
     readRegistry,
     getStep: () => currentStep,
     graphClient: config.graphClient,
+    preferredReadRange: config.preferredReadRange ?? undefined,
   });
   const doomLoop = new DoomLoopDetector();
   let finalVerdict: TriageVerdict | null = null;
@@ -193,6 +196,7 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
     graphAvailable: !!config.graphClient,
     graphContext: config.graphContext ?? null,
     initialCodeContext: config.initialCodeContext ?? null,
+    focusedReadHint: config.focusedReadHint ?? null,
   });
 
   const providerOptions = config.reasoningEffort
@@ -254,7 +258,10 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
           log.info("tool", `${toolName}`, args);
           toolStartTimes.set(chunk.toolCallId, performance.now());
           onEvent({ type: "tool_start", tool: toolName, args });
-          doomLoop.record(toolName, args);
+          const doomLoopArgs = toolName === "read"
+            ? { ...normalizeReadInputForPreferredRange(args as { path: string; offset?: number; limit?: number }, config.preferredReadRange ?? undefined) }
+            : args;
+          doomLoop.record(toolName, doomLoopArgs);
 
           if (toolName === "verdict") {
             try {
@@ -379,7 +386,10 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
             const args = chunk.input as Record<string, unknown>;
             toolStartTimes.set(chunk.toolCallId, performance.now());
             onEvent({ type: "tool_start", tool: toolName, args });
-            doomLoop.record(toolName, args);
+            const doomLoopArgs = toolName === "read"
+              ? { ...normalizeReadInputForPreferredRange(args as { path: string; offset?: number; limit?: number }, config.preferredReadRange ?? undefined) }
+              : args;
+            doomLoop.record(toolName, doomLoopArgs);
             if (toolName === "verdict") {
               try { finalVerdict = TriageVerdictSchema.parse(args); } catch { /* invalid */ }
             } else {

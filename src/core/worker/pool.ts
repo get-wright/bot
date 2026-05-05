@@ -3,7 +3,7 @@ import type { AgentEvent } from "../models/events.js";
 import type { TriageResult } from "../triage/orchestrator.js";
 import type { GraphBridge } from "./graph-bridge.js";
 import type { FromWorker, SerializedConfig, ToWorker } from "./protocol.js";
-import type { ReadRegistrySeed } from "../agent/tools/read.js";
+import type { PreferredReadRange, ReadRegistrySeed } from "../agent/tools/read.js";
 
 export interface WorkerLike {
   postMessage(msg: ToWorker): void;
@@ -36,6 +36,8 @@ interface WorkerTask {
   graphContext?: string;
   initialCodeContext?: string | null;
   initialReadRegistrySeeds?: ReadRegistrySeed[];
+  focusedReadHint?: string | null;
+  preferredReadRange?: PreferredReadRange | null;
 }
 
 interface Slot {
@@ -161,6 +163,8 @@ export class WorkerPool {
           graphContext: next.graphContext,
           initialCodeContext: next.initialCodeContext ?? null,
           initialReadRegistrySeeds: next.initialReadRegistrySeeds,
+          focusedReadHint: next.focusedReadHint ?? null,
+          preferredReadRange: next.preferredReadRange ?? null,
         });
         return;
       }

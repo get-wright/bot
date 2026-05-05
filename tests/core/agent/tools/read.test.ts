@@ -2,11 +2,20 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createReadTool, type ReadRegistry } from "../../../../src/core/agent/tools/read.js";
+import { createReadTool, normalizeReadInputForPreferredRange, type ReadRegistry } from "../../../../src/core/agent/tools/read.js";
 
 function makeTempDir(): string {
   return mkdtempSync(join(tmpdir(), "sast-triage-read-"));
 }
+
+describe("normalizeReadInputForPreferredRange", () => {
+  it("returns post-intercept args for doom-loop accounting", () => {
+    expect(normalizeReadInputForPreferredRange(
+      { path: "src/app.js" },
+      { path: "src/app.js", offset: 10, limit: 20 },
+    )).toEqual({ path: "src/app.js", offset: 10, limit: 20 });
+  });
+});
 
 describe("createReadTool", () => {
   let root: string;
@@ -95,6 +104,52 @@ describe("createReadTool", () => {
     const result = await tool.execute({ path: "minified.js" });
     expect(result).toContain("[line truncated, 3000 chars total]");
     expect(result).not.toContain("x".repeat(2500));
+  });
+
+  it("narrows finding-file reads without offset/limit to the preferred range", async () => {
+    mkdirSync(join(root, "src"));
+    writeFileSync(join(root, "src/app.js"), "one\ntwo\nthree\nfour\nfive\n");
+
+    const tool = createReadTool({
+      projectRoot: root,
+      preferredRange: { path: "src/app.js", offset: 2, limit: 2 },
+    });
+    const result = await tool.execute({ path: "src/app.js" });
+
+    expect(result).not.toContain("1\tone");
+    expect(result).toContain("2\ttwo");
+    expect(result).toContain("3\tthree");
+    expect(result).not.toContain("4\tfour");
+  });
+
+  it("does not override explicit read offsets with the preferred range", async () => {
+    mkdirSync(join(root, "src"));
+    writeFileSync(join(root, "src/app.js"), "one\ntwo\nthree\nfour\nfive\n");
+
+    const tool = createReadTool({
+      projectRoot: root,
+      preferredRange: { path: "src/app.js", offset: 2, limit: 2 },
+    });
+    const result = await tool.execute({ path: "src/app.js", offset: 4, limit: 1 });
+
+    expect(result).not.toContain("2\ttwo");
+    expect(result).toContain("4\tfour");
+  });
+
+  it("does not apply preferred range to other files", async () => {
+    mkdirSync(join(root, "src"));
+    writeFileSync(join(root, "src/app.js"), "one\ntwo\nthree\n");
+    writeFileSync(join(root, "src/other.js"), "alpha\nbeta\ngamma\n");
+
+    const tool = createReadTool({
+      projectRoot: root,
+      preferredRange: { path: "src/app.js", offset: 2, limit: 1 },
+    });
+    const result = await tool.execute({ path: "src/other.js" });
+
+    expect(result).toContain("1\talpha");
+    expect(result).toContain("2\tbeta");
+    expect(result).toContain("3\tgamma");
   });
 
   it("forceRegister seeds tiny files and deduplicates repeated reads", async () => {

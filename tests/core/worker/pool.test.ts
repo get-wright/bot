@@ -155,6 +155,8 @@ describe("WorkerPool dispatch", () => {
       fingerprint: "fp-focused",
       initialCodeContext: "10\tfunction handler() {}",
       initialReadRegistrySeeds: [seed],
+      focusedReadHint: '{"path":"src/app.js","offset":10,"limit":11}',
+      preferredReadRange: { path: "src/app.js", offset: 10, limit: 11 },
     }]);
     pool.start();
 
@@ -169,6 +171,8 @@ describe("WorkerPool dispatch", () => {
       fingerprint: "fp-focused",
       initialCodeContext: "10\tfunction handler() {}",
       initialReadRegistrySeeds: [seed],
+      focusedReadHint: '{"path":"src/app.js","offset":10,"limit":11}',
+      preferredReadRange: { path: "src/app.js", offset: 10, limit: 11 },
     });
   });
 
@@ -371,6 +375,8 @@ describe("WorkerPool crash handling", () => {
       fingerprint: "fp-redrive-focused",
       initialCodeContext: "10\tfunction handler() {}",
       initialReadRegistrySeeds: [seed],
+      focusedReadHint: '{"path":"src/app.js","offset":10,"limit":11}',
+      preferredReadRange: { path: "src/app.js", offset: 10, limit: 11 },
     }]);
     pool.start();
 
@@ -384,6 +390,8 @@ describe("WorkerPool crash handling", () => {
       fingerprint: "fp-redrive-focused",
       initialCodeContext: "10\tfunction handler() {}",
       initialReadRegistrySeeds: [seed],
+      focusedReadHint: '{"path":"src/app.js","offset":10,"limit":11}',
+      preferredReadRange: { path: "src/app.js", offset: 10, limit: 11 },
     });
   });
 

@@ -13,7 +13,7 @@ import { parseSemgrepOutput, fingerprintFinding } from "../parser/semgrep.js";
 import { prefilterFinding } from "../parser/prefilter.js";
 import { runAgentLoop } from "../agent/loop.js";
 import { runFollowUp } from "../agent/follow-up.js";
-import { createReadTool, type ReadRegistry, type ReadRegistrySeed } from "../agent/tools/read.js";
+import { createReadTool, type PreferredReadRange, type ReadRegistry, type ReadRegistrySeed } from "../agent/tools/read.js";
 import { OutputWriter, type OutputRow } from "../../infra/output/writer.js";
 import { formatEvent } from "../../infra/output/reporter.js";
 
@@ -53,6 +53,9 @@ type RunnerErrorResult = {
 
 export type TriageResult = AgentLoopResult | RunnerErrorResult;
 
+const FOCUSED_READ_PADDING_LINES = 20;
+const FOCUSED_READ_MIN_FILE_LINES = 300;
+
 export interface TriageOpts {
   finding: Finding;
   fingerprint: string;
@@ -62,11 +65,15 @@ export interface TriageOpts {
   graphContext?: string | null;
   initialCodeContext?: string | null;
   initialReadRegistrySeeds?: ReadRegistrySeed[];
+  focusedReadHint?: string | null;
+  preferredReadRange?: PreferredReadRange | null;
 }
 
-interface InitialFocusedRead {
-  context: string;
-  seeds: ReadRegistrySeed[];
+interface FocusedReadPlan {
+  hint: string;
+  range: PreferredReadRange;
+  context?: string | null;
+  seeds?: ReadRegistrySeed[];
 }
 
 export interface TriageBatchOpts {
@@ -75,6 +82,8 @@ export interface TriageBatchOpts {
     fingerprint: string;
     initialCodeContext?: string | null;
     initialReadRegistrySeeds?: ReadRegistrySeed[];
+    focusedReadHint?: string | null;
+    preferredReadRange?: PreferredReadRange | null;
   }[];
   config: AppConfig;
   concurrency: number;
@@ -136,6 +145,8 @@ export class TriageOrchestrator {
       graphContext,
       initialCodeContext: opts.initialCodeContext ?? null,
       initialReadRegistrySeeds: opts.initialReadRegistrySeeds,
+      focusedReadHint: opts.focusedReadHint ?? null,
+      preferredReadRange: opts.preferredReadRange ?? null,
     });
   }
 
@@ -174,10 +185,10 @@ export class TriageOrchestrator {
     // Optional: prefetch structural context per finding from the graph and
     // inject it into the system prompt to seed the agent's investigation.
     let graphContexts: Map<string, string> | undefined;
-    let initialFocusedReads: Map<string, InitialFocusedRead> | undefined;
+    let focusedReadPlans: Map<string, FocusedReadPlan> | undefined;
     if (graphClient && process.env.SAST_GRAPH_PREFETCH === "1") {
       graphContexts = new Map();
-      initialFocusedReads = new Map();
+      focusedReadPlans = new Map();
       const root = process.cwd();
       await Promise.all(
         fresh.map(async (item) => {
@@ -186,19 +197,17 @@ export class TriageOrchestrator {
               pattern: "file_summary",
               target: item.finding.path,
             });
-            const [ctx, focused] = await Promise.all([
-              prefetchGraphContextFromSummary(item.finding, graphClient, root, summary),
-              resolveInitialFocusedRead(item.finding, summary, root),
-            ]);
+            const ctx = await prefetchGraphContextFromSummary(item.finding, graphClient, root, summary);
+            const focused = await resolveFocusedReadPlan(item.finding, summary, root);
             if (ctx) graphContexts!.set(item.fingerprint, ctx);
-            if (focused) initialFocusedReads!.set(item.fingerprint, focused);
+            if (focused) focusedReadPlans!.set(item.fingerprint, focused);
           } catch {
             // Best-effort — never fail triage because prefetch/focused read failed.
           }
         }),
       );
       console.error(`[graph] prefetched context for ${graphContexts.size}/${fresh.length} findings`);
-      console.error(`[graph] focused initial reads for ${initialFocusedReads.size}/${fresh.length} findings`);
+      console.error(`[graph] focused read hints for ${focusedReadPlans.size}/${fresh.length} findings`);
     }
 
     if (config.workers > 1) {
@@ -232,13 +241,15 @@ export class TriageOrchestrator {
         },
       });
       pool.enqueue(fresh.map((x) => {
-        const focused = initialFocusedReads?.get(x.fingerprint);
+        const focused = focusedReadPlans?.get(x.fingerprint);
         return {
           finding: x.finding,
           fingerprint: x.fingerprint,
           graphContext: graphContexts?.get(x.fingerprint),
           initialCodeContext: focused?.context ?? null,
           initialReadRegistrySeeds: focused?.seeds,
+          focusedReadHint: focused?.hint ?? null,
+          preferredReadRange: focused?.range ?? null,
         };
       }));
       try {
@@ -253,11 +264,13 @@ export class TriageOrchestrator {
     try {
       await this.triageBatch({
         items: fresh.map((x) => {
-          const focused = initialFocusedReads?.get(x.fingerprint);
+          const focused = focusedReadPlans?.get(x.fingerprint);
           return {
             ...x,
             initialCodeContext: focused?.context ?? null,
             initialReadRegistrySeeds: focused?.seeds,
+            focusedReadHint: focused?.hint ?? null,
+            preferredReadRange: focused?.range ?? null,
           };
         }),
         config,
@@ -317,6 +330,8 @@ export class TriageOrchestrator {
             graphContext: graphContexts?.get(item.fingerprint) ?? null,
             initialCodeContext: item.initialCodeContext ?? null,
             initialReadRegistrySeeds: item.initialReadRegistrySeeds,
+            focusedReadHint: item.focusedReadHint ?? null,
+            preferredReadRange: item.preferredReadRange ?? null,
           })
             .then((result) => {
               onResult(item.fingerprint, result);
@@ -398,13 +413,26 @@ function resolveWorkerEntrySpec(): URL | string {
     : new URL("../worker/entry.ts", import.meta.url);
 }
 
-async function resolveInitialFocusedRead(
+export async function resolveFocusedReadPlan(
   finding: Finding,
   summary: NodeInfo[],
   projectRoot: string,
-): Promise<InitialFocusedRead | null> {
-  const range = resolveEnclosingFunctionRangeFromSummary(finding, summary);
+): Promise<FocusedReadPlan | null> {
+  const range = resolveEnclosingFunctionRangeFromSummary(finding, summary, FOCUSED_READ_PADDING_LINES);
   if (!range) return null;
+
+  const totalLines = countFileLines(resolve(projectRoot, finding.path));
+  if (totalLines < FOCUSED_READ_MIN_FILE_LINES) return null;
+
+  const preferredReadRange = { path: range.path, offset: range.readOffset, limit: range.readLimit };
+  const hint = JSON.stringify(preferredReadRange);
+
+  // Full focused-code injection is useful for experiments but is not the
+  // default: user-message context is replayed across model steps and caused
+  // input-token regressions in E2E runs. Default to the cheap exact read hint.
+  if (process.env.SAST_FOCUSED_READ_CONTEXT !== "1") {
+    return { hint, range: preferredReadRange };
+  }
 
   const registry: ReadRegistry = new Map();
   const readTool = createReadTool({ projectRoot, registry, forceRegister: true });
@@ -414,12 +442,21 @@ async function resolveInitialFocusedRead(
     limit: range.readLimit,
   }).catch(() => null);
 
-  if (!context) return null;
+  if (!context) return { hint, range: preferredReadRange };
 
   return {
+    hint,
+    range: preferredReadRange,
     context,
     seeds: [...registry.entries()].map(([absPath, entry]) => ({ absPath, entry })),
   };
+}
+
+function countFileLines(absPath: string): number {
+  const text = readFileSync(absPath, "utf-8");
+  const lines = text.split("\n");
+  if (lines.at(-1) === "") lines.pop();
+  return lines.length;
 }
 
 function toOutputRow(
